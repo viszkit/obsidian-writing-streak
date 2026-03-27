@@ -1,0 +1,752 @@
+import {
+	Plugin,
+	PluginSettingTab,
+	App,
+	Setting,
+	Notice,
+	TFile,
+	ItemView,
+	WorkspaceLeaf,
+	debounce,
+	Modal,
+	setIcon,
+	Editor,
+} from "obsidian";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const VIEW_TYPE_HEATMAP = "word-goal-heatmap-view";
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const COLOR_PRESETS: { label: string; hex: string }[] = [
+	{ label: "Green",  hex: "#39d353" },
+	{ label: "Teal",   hex: "#4ce0b3" },
+	{ label: "Blue",   hex: "#4a9eff" },
+	{ label: "Purple", hex: "#a78bfa" },
+	{ label: "Pink",   hex: "#f472b6" },
+	{ label: "Orange", hex: "#fb923c" },
+	{ label: "Yellow", hex: "#facc15" },
+	{ label: "Red",    hex: "#f87171" },
+];
+
+// ─── Interfaces ──────────────────────────────────────────────────────────────
+
+interface FileSnapshot {
+	initial: number;
+	current: number;
+}
+
+interface DailyRecord { totalWords: number; }
+
+interface PluginData {
+	settings: WordGoalSettings;
+	/** Completed days: key = "YYYY-MM-DD" */
+	history: Record<string, DailyRecord>;
+	/** Today's per-file tracking — persisted to survive restarts */
+	todaysWordCount: Record<string, FileSnapshot>;
+	/** Which day todaysWordCount belongs to */
+	todaysDate: string;
+}
+
+interface WordGoalSettings {
+	webhookUrl: string;
+	dailyGoal: number;
+	heatmapColor: string;
+}
+
+const DEFAULT_SETTINGS: WordGoalSettings = {
+	webhookUrl: "",
+	dailyGoal: 500,
+	heatmapColor: "#39d353",
+};
+
+const DEFAULT_DATA: PluginData = {
+	settings: { ...DEFAULT_SETTINGS },
+	history: {},
+	todaysWordCount: {},
+	todaysDate: "",
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Format a Date as YYYY-MM-DD in LOCAL timezone (not UTC!) */
+function dateToKey(date: Date): string {
+	const y = date.getFullYear();
+	const m = String(date.getMonth() + 1).padStart(2, "0");
+	const d = String(date.getDate()).padStart(2, "0");
+	return `${y}-${m}-${d}`;
+}
+
+function todayKey(): string { return dateToKey(new Date()); }
+
+function countWords(text: string): number { return (text.match(/\S+/g) || []).length; }
+
+function hexToRgba(hex: string, alpha: number): string {
+	const r = parseInt(hex.slice(1, 3), 16);
+	const g = parseInt(hex.slice(3, 5), 16);
+	const b = parseInt(hex.slice(5, 7), 16);
+	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** Lerp between two hex colors */
+function lerpColor(from: string, to: string, t: number): string {
+	const f = [parseInt(from.slice(1, 3), 16), parseInt(from.slice(3, 5), 16), parseInt(from.slice(5, 7), 16)];
+	const tC = [parseInt(to.slice(1, 3), 16), parseInt(to.slice(3, 5), 16), parseInt(to.slice(5, 7), 16)];
+	const r = Math.round(f[0] + (tC[0] - f[0]) * t);
+	const g = Math.round(f[1] + (tC[1] - f[1]) * t);
+	const b = Math.round(f[2] + (tC[2] - f[2]) * t);
+	return `rgb(${r}, ${g}, ${b})`;
+}
+
+const LEVEL_ALPHA = [0, 0.3, 0.5, 0.75, 1.0];
+
+function intensityLevel(words: number, max: number): number {
+	if (words === 0) return 0;
+	const ratio = words / max;
+	if (ratio <= 0.25) return 1;
+	if (ratio <= 0.5) return 2;
+	if (ratio <= 0.75) return 3;
+	return 4;
+}
+
+function calcStreaks(history: Record<string, DailyRecord>): { current: number; longest: number } {
+	let current = 0, longest = 0, streak = 0;
+	const d = new Date();
+	for (let i = 0; i < 1095; i++) {
+		const key = dateToKey(d);
+		if (history[key] && history[key].totalWords > 0) {
+			streak++;
+			if (streak > longest) longest = streak;
+		} else {
+			if (i === 0) { d.setDate(d.getDate() - 1); continue; }
+			if (current === 0) current = streak;
+			streak = 0;
+		}
+		d.setDate(d.getDate() - 1);
+	}
+	if (current === 0) current = streak;
+	if (streak > longest) longest = streak;
+	return { current, longest };
+}
+
+function yearMax(history: Record<string, DailyRecord>, year: number): number {
+	let max = 1;
+	for (const [key, rec] of Object.entries(history)) {
+		if (key.startsWith(`${year}-`) && rec.totalWords > max) max = rec.totalWords;
+	}
+	return max;
+}
+
+function yearStats(history: Record<string, DailyRecord>, year: number) {
+	let total = 0, days = 0;
+	for (const [key, rec] of Object.entries(history)) {
+		if (!key.startsWith(`${year}-`)) continue;
+		if (rec.totalWords > 0) { total += rec.totalWords; days++; }
+	}
+	return { total, days, avg: days > 0 ? Math.round(total / days) : 0 };
+}
+
+function getMonthlySums(history: Record<string, DailyRecord>, year: number): number[] {
+	const sums = new Array(12).fill(0);
+	for (const [key, rec] of Object.entries(history)) {
+		if (!key.startsWith(`${year}-`)) continue;
+		sums[parseInt(key.slice(5, 7), 10) - 1] += rec.totalWords;
+	}
+	return sums;
+}
+
+/** Build the calendar grid data for a year. Returns weeks (arrays of 7 slots). */
+function buildYearGrid(year: number): { dayIndex: number; date: Date | null }[][] {
+	const jan1 = new Date(year, 0, 1);
+	const startDow = (jan1.getDay() + 6) % 7;
+	const dec31 = new Date(year, 11, 31);
+	const totalDays = Math.floor((dec31.getTime() - jan1.getTime()) / 86400000) + 1;
+	const totalSlots = startDow + totalDays;
+	const totalWeeks = Math.ceil(totalSlots / 7);
+
+	const weeks: { dayIndex: number; date: Date | null }[][] = [];
+	for (let w = 0; w < totalWeeks; w++) {
+		const week: { dayIndex: number; date: Date | null }[] = [];
+		for (let dow = 0; dow < 7; dow++) {
+			const di = w * 7 + dow - startDow;
+			if (di < 0 || di >= totalDays) {
+				week.push({ dayIndex: -1, date: null });
+			} else {
+				week.push({ dayIndex: di, date: new Date(year, 0, 1 + di) });
+			}
+		}
+		weeks.push(week);
+	}
+	return weeks;
+}
+
+// ─── Plugin ──────────────────────────────────────────────────────────────────
+
+export default class WordGoalWebhookPlugin extends Plugin {
+	data: PluginData;
+
+	private notifiedToday: boolean = false;
+	private statusBarEl: HTMLElement | null = null;
+	private visibilityHandler: () => void;
+
+	get settings(): WordGoalSettings { return this.data.settings; }
+
+	async onload() {
+		await this.loadPluginData();
+		this.addSettingTab(new WordGoalSettingTab(this.app, this));
+		this.handleDayRollover();
+
+		this.registerView(VIEW_TYPE_HEATMAP, (leaf) => new SidebarHeatmapView(leaf, this));
+
+		this.addCommand({ id: "open-writing-heatmap", name: "Open writing heatmap", callback: () => this.activateSidebar() });
+		this.addCommand({ id: "open-writing-stats", name: "Open writing stats", callback: () => new DetailModal(this.app, this).open() });
+		this.addCommand({ id: "show-daily-word-count", name: "Show today's word count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} words`) });
+		this.addCommand({
+			id: "import-daily-stats",
+			name: "Import history from Daily Stats plugin",
+			callback: () => this.importDailyStats(),
+		});
+
+		// Editor change: fast in-memory update on every change, debounced save
+		const debouncedPersist = debounce(() => {
+			this.syncTodayHistory();
+			this.queueSave();
+			this.refreshSidebar();
+		}, 800, true);
+
+		this.registerEvent(
+			this.app.workspace.on("editor-change", (editor) => {
+				this.trackEditorChange(editor);
+				this.updateStatusBar();
+				debouncedPersist();
+			})
+		);
+
+		// Status bar
+		this.statusBarEl = this.addStatusBarItem();
+		this.statusBarEl.addClass("wg-statusbar");
+		this.registerInterval(window.setInterval(() => this.updateStatusBar(), 1000));
+		this.updateStatusBar();
+
+		// Save when app goes to background (critical for mobile)
+		this.visibilityHandler = () => {
+			if (document.visibilityState === "hidden") {
+				this.syncTodayHistory();
+				this.savePluginData();
+			}
+		};
+		document.addEventListener("visibilitychange", this.visibilityHandler);
+
+		this.app.workspace.onLayoutReady(() => this.activateSidebar());
+	}
+
+	async onunload() {
+		document.removeEventListener("visibilitychange", this.visibilityHandler);
+		this.finalizeToday();
+		await this.savePluginData();
+	}
+
+	// ── Today's total — computed from persisted snapshots ─────────────────
+
+	todaysTotal(): number {
+		let sum = 0;
+		for (const snap of Object.values(this.data.todaysWordCount)) {
+			sum += Math.max(snap.current - snap.initial, 0);
+		}
+		return sum;
+	}
+
+	// ── Day rollover ─────────────────────────────────────────────────────
+
+	private handleDayRollover() {
+		const today = todayKey();
+		if (this.data.todaysDate && this.data.todaysDate !== today) {
+			// Finalize yesterday's count into history
+			this.finalizeDay(this.data.todaysDate);
+		}
+		if (this.data.todaysDate !== today) {
+			this.data.todaysDate = today;
+			this.data.todaysWordCount = {};
+			this.notifiedToday = false;
+		}
+		// Also update today's history entry from any existing snapshots
+		this.syncTodayHistory();
+	}
+
+	private finalizeDay(dateKey: string) {
+		let total = 0;
+		for (const snap of Object.values(this.data.todaysWordCount)) {
+			total += Math.max(snap.current - snap.initial, 0);
+		}
+		if (total > 0 || !(dateKey in this.data.history)) {
+			this.data.history[dateKey] = { totalWords: total };
+		}
+	}
+
+	private finalizeToday() {
+		if (this.data.todaysDate) {
+			this.data.history[this.data.todaysDate] = { totalWords: this.todaysTotal() };
+		}
+	}
+
+	private syncTodayHistory() {
+		const today = todayKey();
+		this.data.history[today] = { totalWords: this.todaysTotal() };
+	}
+
+	// ── Word tracking (fast, synchronous, runs on every keystroke) ───────
+
+	private trackEditorChange(editor: Editor) {
+		if (this.data.todaysDate !== todayKey()) {
+			this.handleDayRollover();
+		}
+
+		const file = this.app.workspace.getActiveFile();
+		if (!file || !(file instanceof TFile)) return;
+
+		const content = editor.getValue();
+		const currentWords = countWords(content);
+		const path = file.path;
+
+		const existing = this.data.todaysWordCount[path];
+		if (!existing) {
+			this.data.todaysWordCount[path] = { initial: currentWords, current: currentWords };
+		} else {
+			existing.current = currentWords;
+		}
+
+		// Check goal
+		if (!this.notifiedToday && this.todaysTotal() >= this.settings.dailyGoal) {
+			this.notifiedToday = true;
+			new Notice(`🎉 You hit ${this.settings.dailyGoal} words today!`);
+			this.fireWebhook();
+		}
+	}
+
+	// ── Debounced save (avoid hammering disk on every keystroke) ──────────
+
+	private async queueSave() {
+		// Save immediately — Obsidian's saveData is fast and handles batching
+		await this.savePluginData();
+	}
+
+	// ── Import from Daily Stats plugin ───────────────────────────────────
+
+	private async importDailyStats() {
+		try {
+			const adapter = this.app.vault.adapter;
+			const path = `${this.app.vault.configDir}/plugins/obsidian-daily-stats/data.json`;
+			const exists = await adapter.exists(path);
+			if (!exists) {
+				new Notice("Daily Stats data.json not found.");
+				return;
+			}
+			const raw = await adapter.read(path);
+			const dsData = JSON.parse(raw);
+			const dayCounts: Record<string, number> = dsData?.dayCounts ?? {};
+
+			let imported = 0;
+			for (const [dsKey, words] of Object.entries(dayCounts)) {
+				if (typeof words !== "number" || words <= 0) continue;
+				// daily-stats uses "YYYY/M/D" with 0-indexed months
+				const parts = dsKey.split("/");
+				if (parts.length !== 3) continue;
+				const year = parseInt(parts[0], 10);
+				const month = parseInt(parts[1], 10) + 1; // 0-indexed → 1-indexed
+				const day = parseInt(parts[2], 10);
+				const isoKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+				// Only import if we don't already have data for that day
+				if (!this.data.history[isoKey] || this.data.history[isoKey].totalWords === 0) {
+					this.data.history[isoKey] = { totalWords: words };
+					imported++;
+				}
+			}
+
+			await this.savePluginData();
+			this.refreshSidebar();
+			new Notice(`Imported ${imported} days from Daily Stats.`);
+		} catch (err) {
+			console.error("Import error:", err);
+			new Notice("Import failed — check console.");
+		}
+	}
+
+	// ── Status bar ────────────────────────────────────────────────────────
+
+	private updateStatusBar() {
+		if (!this.statusBarEl) return;
+		if (this.data.todaysDate !== todayKey()) this.handleDayRollover();
+
+		const total = this.todaysTotal();
+		const goal = this.settings.dailyGoal;
+		const pct = Math.min(total / goal, 1);
+		const dotColor = lerpColor("#555555", this.settings.heatmapColor, pct);
+
+		this.statusBarEl.empty();
+		const dot = this.statusBarEl.createSpan({ cls: "wg-sb-dot" });
+		dot.style.backgroundColor = dotColor;
+		this.statusBarEl.createSpan({ text: ` ${total} / ${goal}`, cls: "wg-sb-text" });
+	}
+
+	// ── Sidebar ───────────────────────────────────────────────────────────
+
+	async activateSidebar() {
+		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_HEATMAP);
+		if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+		const leaf = this.app.workspace.getRightLeaf(false);
+		if (leaf) {
+			await leaf.setViewState({ type: VIEW_TYPE_HEATMAP, active: true });
+			this.app.workspace.revealLeaf(leaf);
+		}
+	}
+
+	refreshSidebar() {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HEATMAP)) {
+			(leaf.view as SidebarHeatmapView).refresh();
+		}
+	}
+
+	// ── Persistence ───────────────────────────────────────────────────────
+
+	async loadPluginData() {
+		const loaded = await this.loadData();
+		this.data = Object.assign({}, DEFAULT_DATA, loaded);
+		this.data.settings = Object.assign({}, DEFAULT_SETTINGS, this.data.settings);
+		if (!this.data.history) this.data.history = {};
+		if (!this.data.todaysWordCount) this.data.todaysWordCount = {};
+		if (!this.data.todaysDate) this.data.todaysDate = "";
+	}
+
+	async savePluginData() { await this.saveData(this.data); }
+
+	// ── Webhook ───────────────────────────────────────────────────────────
+
+	private async fireWebhook() {
+		const url = this.settings.webhookUrl.trim();
+		if (!url) { new Notice("Word Goal: no webhook URL configured."); return; }
+		try {
+			await fetch(url, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					event: "daily_word_goal_reached",
+					goal: this.settings.dailyGoal,
+					actual: this.todaysTotal(),
+					date: this.data.todaysDate,
+					timestamp: new Date().toISOString(),
+				}),
+			});
+			new Notice("Word Goal: webhook sent ✓");
+		} catch (err) {
+			console.error("Word Goal webhook error:", err);
+			new Notice("Word Goal: webhook failed – check console.");
+		}
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SIDEBAR — minimal vertical heatmap
+// ═════════════════════════════════════════════════════════════════════════════
+
+class SidebarHeatmapView extends ItemView {
+	plugin: WordGoalWebhookPlugin;
+
+	constructor(leaf: WorkspaceLeaf, plugin: WordGoalWebhookPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+	}
+
+	getViewType() { return VIEW_TYPE_HEATMAP; }
+	getDisplayText() { return "Writing Heatmap"; }
+	getIcon() { return "flame"; }
+	async onOpen() { this.refresh(); }
+
+	refresh() {
+		const root = this.containerEl.children[1] as HTMLElement;
+		root.empty();
+		root.addClass("wg-sidebar");
+
+		const year = new Date().getFullYear();
+		const history = this.plugin.data.history;
+		const color = this.plugin.settings.heatmapColor;
+
+		// ── Top bar ──
+		const topBar = root.createDiv({ cls: "wg-sb-topbar" });
+		topBar.createSpan({ text: "Writing", cls: "wg-sb-title" });
+		const expandBtn = topBar.createEl("button", { cls: "wg-sb-expand-btn" });
+		setIcon(expandBtn, "maximize-2");
+		expandBtn.setAttribute("aria-label", "Open detailed stats");
+		expandBtn.addEventListener("click", () => new DetailModal(this.app, this.plugin).open());
+
+		// ── Today counter (live from in-memory snapshots) ──
+		const todayWords = this.plugin.todaysTotal();
+		const todayEl = root.createDiv({ cls: "wg-sb-today" });
+		todayEl.createSpan({ text: `${todayWords}`, cls: "wg-sb-today-num" });
+		todayEl.createSpan({ text: ` / ${this.plugin.settings.dailyGoal}`, cls: "wg-sb-today-goal" });
+
+		// ── Vertical heatmap (no month labels — just dots filling full width) ──
+		const max = yearMax(history, year);
+		const weeks = buildYearGrid(year);
+
+		const gridContainer = root.createDiv({ cls: "wg-sb-grid-container" });
+		const grid = gridContainer.createDiv({ cls: "wg-sb-grid" });
+
+		for (let w = 0; w < weeks.length; w++) {
+			const row = grid.createDiv({ cls: "wg-sb-row" });
+			for (const slot of weeks[w]) {
+				if (!slot.date) {
+					row.createDiv({ cls: "wg-sb-cell wg-sb-blank" });
+					continue;
+				}
+
+				const key = dateToKey(slot.date);
+				const words = history[key]?.totalWords ?? 0;
+				const level = intensityLevel(words, max);
+				const cell = row.createDiv({ cls: "wg-sb-cell" });
+
+				if (level > 0) {
+					cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
+				} else {
+					cell.addClass("wg-sb-cell-empty");
+				}
+
+				const dateStr = slot.date.toLocaleDateString("de-DE", { day: "numeric", month: "short" });
+				cell.dataset.tooltip = `${dateStr}: ${words}`;
+				cell.addClass("wg-tooltip");
+			}
+		}
+
+		// ── Streak section at bottom ──
+		const streakSection = root.createDiv({ cls: "wg-sb-streak-section" });
+		streakSection.createDiv({ text: "Streak", cls: "wg-sb-streak-title" });
+
+		const { current, longest } = calcStreaks(history);
+		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
+		this.streakPill(streakRow, "🔥", current, "current");
+		this.streakPill(streakRow, "👑", longest, "best");
+	}
+
+	private streakPill(parent: HTMLElement, icon: string, value: number, label: string) {
+		const pill = parent.createDiv({ cls: "wg-sb-pill" });
+		pill.createSpan({ text: icon, cls: "wg-sb-pill-icon" });
+		pill.createSpan({ text: `${value}`, cls: "wg-sb-pill-num" });
+		pill.createSpan({ text: label, cls: "wg-sb-pill-label" });
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DETAIL MODAL
+// ═════════════════════════════════════════════════════════════════════════════
+
+class DetailModal extends Modal {
+	plugin: WordGoalWebhookPlugin;
+	private displayYear: number;
+
+	constructor(app: App, plugin: WordGoalWebhookPlugin) {
+		super(app);
+		this.plugin = plugin;
+		this.displayYear = new Date().getFullYear();
+	}
+
+	onOpen() { this.modalEl.addClass("wg-detail-modal"); this.render(); }
+	onClose() { this.contentEl.empty(); }
+
+	private render() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		const history = this.plugin.data.history;
+		const year = this.displayYear;
+		const color = this.plugin.settings.heatmapColor;
+
+		// ── Year nav ──
+		const nav = contentEl.createDiv({ cls: "wg-dt-nav" });
+		const btnPrev = nav.createEl("button", { text: "←", cls: "wg-dt-nav-btn" });
+		btnPrev.addEventListener("click", () => { this.displayYear--; this.render(); });
+		nav.createSpan({ text: `${year}`, cls: "wg-dt-year" });
+		const btnNext = nav.createEl("button", { text: "→", cls: "wg-dt-nav-btn" });
+		btnNext.addEventListener("click", () => { this.displayYear++; this.render(); });
+
+		// ── Stats cards (numbers in chosen color) ──
+		const stats = yearStats(history, year);
+		const { current, longest } = calcStreaks(history);
+		const statsRow = contentEl.createDiv({ cls: "wg-dt-stats" });
+
+		this.statCard(statsRow, stats.total.toLocaleString("de-DE"), "total words", color);
+		this.statCard(statsRow, `${stats.days}`, "days written", color);
+		this.statCard(statsRow, stats.avg.toLocaleString("de-DE"), "daily average", color);
+		this.statCard(statsRow, `${current}`, "current streak", color);
+		this.statCard(statsRow, `${longest}`, "longest streak", color);
+
+		// ── Horizontal heatmap ──
+		const max = yearMax(history, year);
+		const weeks = buildYearGrid(year);
+
+		// Collect month start positions
+		let lastMonth = -1;
+		const monthPositions: { week: number; month: number }[] = [];
+		for (let w = 0; w < weeks.length; w++) {
+			for (const slot of weeks[w]) {
+				if (slot.date) {
+					const m = slot.date.getMonth();
+					if (m !== lastMonth) { lastMonth = m; monthPositions.push({ week: w, month: m }); break; }
+				}
+			}
+		}
+
+		// Single scrollable wrapper for months + grid
+		const scrollWrap = contentEl.createDiv({ cls: "wg-dt-scroll-wrap" });
+
+		// Inner container that has the actual width
+		const scrollInner = scrollWrap.createDiv({ cls: "wg-dt-scroll-inner" });
+
+		// Month labels row (inside scroll)
+		const monthRow = scrollInner.createDiv({ cls: "wg-dt-months" });
+		monthRow.createDiv({ cls: "wg-dt-month-spacer" });
+		let lastEnd = 0;
+		for (const mp of monthPositions) {
+			if (mp.week > lastEnd) {
+				const sp = monthRow.createSpan({ cls: "wg-dt-mlabel-spacer" });
+				sp.style.width = `${(mp.week - lastEnd) * 14}px`;
+			}
+			monthRow.createSpan({ text: MONTHS[mp.month], cls: "wg-dt-mlabel" });
+			lastEnd = mp.week + 1;
+		}
+
+		// Heatmap grid (inside scroll)
+		const heatWrap = scrollInner.createDiv({ cls: "wg-dt-heatmap" });
+
+		// Day labels
+		const dayLabels = heatWrap.createDiv({ cls: "wg-dt-daylabels" });
+		for (const d of ["Mon", "", "Wed", "", "Fri", "", ""]) {
+			dayLabels.createDiv({ cls: "wg-dt-daylabel", text: d });
+		}
+
+		const grid = heatWrap.createDiv({ cls: "wg-dt-grid" });
+		for (let w = 0; w < weeks.length; w++) {
+			const col = grid.createDiv({ cls: "wg-dt-col" });
+			for (const slot of weeks[w]) {
+				if (!slot.date) { col.createDiv({ cls: "wg-dt-cell wg-dt-blank" }); continue; }
+
+				const key = dateToKey(slot.date);
+				const words = history[key]?.totalWords ?? 0;
+				const level = intensityLevel(words, max);
+				const cell = col.createDiv({ cls: "wg-dt-cell" });
+
+				if (level > 0) {
+					cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
+				} else {
+					cell.addClass("wg-dt-cell-zero");
+				}
+
+				const dateStr = slot.date.toLocaleDateString("de-DE", {
+					weekday: "short", day: "numeric", month: "short", year: "numeric",
+				});
+				cell.dataset.tooltip = `${dateStr}: ${words} words`;
+				cell.addClass("wg-tooltip");
+			}
+		}
+
+		// Legend
+		const legend = contentEl.createDiv({ cls: "wg-dt-legend" });
+		legend.createSpan({ text: "Less", cls: "wg-dt-legend-text" });
+		for (let i = 0; i <= 4; i++) {
+			const c = legend.createDiv({ cls: "wg-dt-cell wg-dt-legend-cell" });
+			if (i > 0) c.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[i]);
+			else c.addClass("wg-dt-cell-zero");
+		}
+		legend.createSpan({ text: "More", cls: "wg-dt-legend-text" });
+
+		// ── Monthly breakdown with bar chart ──
+		const sums = getMonthlySums(history, year);
+		const maxMonth = Math.max(...sums, 1);
+		const monthlyWrap = contentEl.createDiv({ cls: "wg-dt-monthly" });
+		monthlyWrap.createEl("h4", { text: "Monthly breakdown", cls: "wg-dt-monthly-title" });
+
+		const monthGrid = monthlyWrap.createDiv({ cls: "wg-dt-month-grid" });
+		for (let i = 0; i < 12; i++) {
+			const row = monthGrid.createDiv({ cls: "wg-dt-month-row" });
+			row.createSpan({ text: MONTHS[i], cls: "wg-dt-month-name" });
+			const barWrap = row.createDiv({ cls: "wg-dt-bar-wrap" });
+			const bar = barWrap.createDiv({ cls: "wg-dt-bar" });
+			bar.style.width = `${(sums[i] / maxMonth) * 100}%`;
+			bar.style.backgroundColor = hexToRgba(color, 0.7);
+			row.createSpan({ text: sums[i].toLocaleString("de-DE"), cls: "wg-dt-month-val" });
+		}
+	}
+
+	private statCard(parent: HTMLElement, value: string, label: string, color: string) {
+		const card = parent.createDiv({ cls: "wg-dt-stat" });
+		const num = card.createDiv({ text: value, cls: "wg-dt-stat-num" });
+		num.style.color = color;
+		card.createDiv({ text: label, cls: "wg-dt-stat-label" });
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SETTINGS
+// ═════════════════════════════════════════════════════════════════════════════
+
+class WordGoalSettingTab extends PluginSettingTab {
+	plugin: WordGoalWebhookPlugin;
+
+	constructor(app: App, plugin: WordGoalWebhookPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		containerEl.createEl("h2", { text: "Webhook" });
+
+		new Setting(containerEl)
+			.setName("Webhook URL")
+			.setDesc("POST endpoint for the daily goal notification")
+			.addText((t) => t
+				.setPlaceholder("https://hook.example.com/...")
+				.setValue(this.plugin.settings.webhookUrl)
+				.onChange(async (v) => { this.plugin.settings.webhookUrl = v; await this.plugin.savePluginData(); })
+			);
+
+		new Setting(containerEl)
+			.setName("Daily word goal")
+			.setDesc("New words needed to trigger the webhook")
+			.addText((t) => t
+				.setPlaceholder("500")
+				.setValue(String(this.plugin.settings.dailyGoal))
+				.onChange(async (v) => {
+					const n = parseInt(v, 10);
+					if (!isNaN(n) && n > 0) { this.plugin.settings.dailyGoal = n; await this.plugin.savePluginData(); }
+				})
+			);
+
+		containerEl.createEl("h2", { text: "Heatmap" });
+
+		// Color preset picker
+		const colorSetting = new Setting(containerEl)
+			.setName("Heatmap colour")
+			.setDesc("Choose a colour for the heatmap");
+
+		const swatchContainer = colorSetting.controlEl.createDiv({ cls: "wg-color-swatches" });
+		for (const preset of COLOR_PRESETS) {
+			const swatch = swatchContainer.createDiv({ cls: "wg-color-swatch" });
+			swatch.style.backgroundColor = preset.hex;
+			swatch.setAttribute("aria-label", preset.label);
+
+			if (this.plugin.settings.heatmapColor === preset.hex) {
+				swatch.addClass("wg-swatch-active");
+			}
+
+			swatch.addEventListener("click", async () => {
+				this.plugin.settings.heatmapColor = preset.hex;
+				await this.plugin.savePluginData();
+				this.plugin.refreshSidebar();
+				// Re-render settings to update active state
+				this.display();
+			});
+		}
+	}
+}

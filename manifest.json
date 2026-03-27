@@ -1,0 +1,9 @@
+{
+  "id": "word-goal-webhook",
+  "name": "Word Goal Webhook",
+  "version": "3.1.0",
+  "minAppVersion": "0.15.0",
+  "description": "Daily word goal webhook + minimal sidebar heatmap with detailed stats view.",
+  "author": "Laszlo",
+  "isDesktopOnly": false
+}

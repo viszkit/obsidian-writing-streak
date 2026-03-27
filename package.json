@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-word-goal-webhook",
+  "version": "3.1.0",
+  "description": "Daily word goal webhook + writing heatmap",
+  "main": "main.js",
+  "scripts": {
+    "build": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node",
+    "dev": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "obsidian": "latest",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

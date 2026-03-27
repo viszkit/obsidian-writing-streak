@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "target": "ES6",
+    "module": "ESNext",
+    "lib": ["DOM", "ES6", "ES2015.Promise"],
+    "moduleResolution": "node",
+    "strict": true,
+    "noImplicitAny": true,
+    "outDir": "./dist",
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["main.ts"]
+}

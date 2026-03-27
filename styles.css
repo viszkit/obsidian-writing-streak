@@ -1,0 +1,462 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Word Goal Webhook — v3.1 Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shared tooltip ───────────────────────────────────────────────────────── */
+
+.wg-tooltip {
+  position: relative;
+}
+
+.wg-tooltip:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border-radius: 5px;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* ── Status bar dot ───────────────────────────────────────────────────────── */
+
+.wg-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wg-sb-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color 0.4s ease;
+}
+
+.wg-sb-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.wg-sidebar {
+  padding: 12px 10px;
+  font-family: var(--font-interface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Top bar */
+.wg-sb-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.wg-sb-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.wg-sb-expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.wg-sb-expand-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Today counter */
+.wg-sb-today {
+  text-align: center;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+
+.wg-sb-today-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-normal);
+  line-height: 1;
+}
+
+.wg-sb-today-goal {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* ── Vertical heatmap ─────────────────────────────────────────────────────── */
+
+.wg-sb-grid-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.wg-sb-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wg-sb-row {
+  display: flex;
+  gap: 2px;
+}
+
+.wg-sb-cell {
+  flex: 1;
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: 2px;
+}
+
+.wg-sb-cell-empty {
+  background: var(--background-modifier-hover);
+}
+
+.wg-sb-blank {
+  background: transparent;
+}
+
+/* ── Streak section — pinned to bottom ────────────────────────────────────── */
+
+.wg-sb-streak-section {
+  flex-shrink: 0;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.wg-sb-streak-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.wg-sb-streaks {
+  display: flex;
+  gap: 6px;
+}
+
+.wg-sb-pill {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--background-secondary);
+  font-size: 12px;
+}
+
+.wg-sb-pill-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.wg-sb-pill-num {
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.wg-sb-pill-label {
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DETAIL MODAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.wg-detail-modal {
+  width: 740px;
+  max-width: 90vw;
+}
+
+.wg-detail-modal .modal-content {
+  padding: 20px 24px;
+}
+
+/* Year nav */
+.wg-dt-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.wg-dt-year {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.wg-dt-nav-btn {
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1em;
+  padding: 4px 12px;
+  color: var(--text-normal);
+  transition: background 0.15s;
+}
+
+.wg-dt-nav-btn:hover {
+  background: var(--background-modifier-active-hover);
+}
+
+/* Stats row */
+.wg-dt-stats {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.wg-dt-stat {
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  min-width: 85px;
+}
+
+.wg-dt-stat-num {
+  font-size: 1.3em;
+  font-weight: 700;
+  line-height: 1.2;
+  /* color is set inline from JS */
+}
+
+.wg-dt-stat-label {
+  font-size: 0.65em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Scroll wrapper — months + grid scroll together */
+.wg-dt-scroll-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.wg-dt-scroll-inner {
+  display: inline-block;
+  min-width: 100%;
+}
+
+/* Month labels row */
+.wg-dt-months {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 4px;
+  padding-left: 28px;
+}
+
+.wg-dt-month-spacer {
+  display: none;
+}
+
+.wg-dt-mlabel-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.wg-dt-mlabel {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 28px;
+  flex-shrink: 0;
+}
+
+/* Horizontal heatmap */
+.wg-dt-heatmap {
+  display: flex;
+  gap: 4px;
+}
+
+.wg-dt-daylabels {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.wg-dt-daylabel {
+  height: 11px;
+  line-height: 11px;
+  font-size: 9px;
+  color: var(--text-muted);
+  width: 24px;
+  text-align: right;
+}
+
+.wg-dt-grid {
+  display: flex;
+  gap: 3px;
+}
+
+.wg-dt-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wg-dt-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.wg-dt-cell-zero {
+  background: var(--background-modifier-hover);
+}
+
+.wg-dt-blank {
+  background: transparent;
+}
+
+/* Legend */
+.wg-dt-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  margin-top: 6px;
+  margin-bottom: 20px;
+}
+
+.wg-dt-legend-text {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.wg-dt-legend-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+/* Monthly breakdown */
+.wg-dt-monthly {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 16px;
+}
+
+.wg-dt-monthly-title {
+  margin: 0 0 12px 0;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.wg-dt-month-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wg-dt-month-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wg-dt-month-name {
+  width: 30px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.wg-dt-bar-wrap {
+  flex: 1;
+  height: 14px;
+  background: var(--background-modifier-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.wg-dt-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+.wg-dt-month-val {
+  width: 50px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-normal);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SETTINGS — color swatches
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.wg-color-swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wg-color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.1s;
+  box-sizing: border-box;
+}
+
+.wg-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.wg-swatch-active {
+  border-color: var(--text-normal);
+  box-shadow: 0 0 0 2px var(--background-primary);
+}
