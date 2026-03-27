@@ -25,7 +25,13 @@ An [Obsidian](https://obsidian.md) plugin that tracks your daily word count, fir
    ```
    <vault>/.obsidian/plugins/word-goal-webhook/
    ```
-3. Reload Obsidian and enable the plugin under **Settings → Community plugins**.
+3. Run
+```bash
+npm install
+npm run build
+```
+4. Reload Obsidian and enable the plugin under **Settings → Community plugins**.
+5. Choose Webhook destination and color
 
 ### Build from source
 
