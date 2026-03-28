@@ -12,6 +12,7 @@ import {
 	setIcon,
 	Editor,
 	MarkdownView,
+	requestUrl,
 } from "obsidian";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -513,7 +514,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			new Notice(`Imported ${imported} days from Daily Stats.`);
 		} catch (err) {
 			console.error("Import error:", err);
-			new Notice("Import failed — check console.");
+			new Notice("Import failed.");
 		}
 	}
 
@@ -577,7 +578,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const url = this.settings.webhookUrl.trim();
 		if (!url) { new Notice("Word Goal: no webhook URL configured."); return; }
 		try {
-			const response = await fetch(url, {
+			await requestUrl({
+				url,
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -588,15 +590,12 @@ export default class WordGoalWebhookPlugin extends Plugin {
 					timestamp: new Date().toISOString(),
 				}),
 			});
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}`);
-			}
 			this.data.lastWebhookSentDate = this.data.todaysDate;
 			await this.savePluginData();
 			new Notice("Word Goal: webhook sent ✓");
 		} catch (err) {
 			console.error("Word Goal webhook error:", err);
-			new Notice("Word Goal: webhook failed – check console.");
+			new Notice("Word Goal: webhook failed.");
 		}
 	}
 }
@@ -677,7 +676,7 @@ class SidebarHeatmapView extends ItemView {
 		const goalMet = calcStreaks(history, isGoalMetDay);
 		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
 		this.streakCard(streakRow, "✍", "Writing streak", writing.current, writing.longest);
-		this.streakCard(streakRow, "🎯", "Goal met streak", goalMet.current, goalMet.longest);
+		this.streakCard(streakRow, "🎯", "Goal streak", goalMet.current, goalMet.longest);
 	}
 
 	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number) {
@@ -828,7 +827,7 @@ class WordGoalSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Webhook" });
+		new Setting(containerEl).setName("Webhook").setHeading();
 
 		new Setting(containerEl)
 			.setName("Webhook URL")
@@ -851,7 +850,7 @@ class WordGoalSettingTab extends PluginSettingTab {
 				})
 			);
 
-		containerEl.createEl("h2", { text: "Heatmap" });
+		new Setting(containerEl).setName("Heatmap").setHeading();
 
 		// Color preset picker
 		const colorSetting = new Setting(containerEl)
