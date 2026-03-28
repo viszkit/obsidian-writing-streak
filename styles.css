@@ -64,10 +64,18 @@
 /* Top bar */
 .wg-sb-topbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
   flex-shrink: 0;
+  gap: 8px;
+}
+
+.wg-sb-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-normal);
+  line-height: 1.2;
 }
 
 .wg-sb-expand-btn {

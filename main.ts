@@ -628,6 +628,7 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Top bar ──
 		const topBar = root.createDiv({ cls: "wg-sb-topbar" });
+		topBar.createDiv({ text: "Writing Heatmap", cls: "wg-sb-title" });
 		const expandBtn = topBar.createEl("button", { cls: "wg-sb-expand-btn" });
 		setIcon(expandBtn, "maximize-2");
 		expandBtn.setAttribute("aria-label", "Open detailed stats");
