@@ -11,6 +11,7 @@ import {
 	Modal,
 	setIcon,
 	Editor,
+	MarkdownView,
 } from "obsidian";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -46,6 +47,8 @@ interface PluginData {
 	todaysWordCount: Record<string, FileSnapshot>;
 	/** Which day todaysWordCount belongs to */
 	todaysDate: string;
+	/** Which day already triggered the webhook */
+	lastWebhookSentDate: string;
 }
 
 interface WordGoalSettings {
@@ -65,6 +68,7 @@ const DEFAULT_DATA: PluginData = {
 	history: {},
 	todaysWordCount: {},
 	todaysDate: "",
+	lastWebhookSentDate: "",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -109,24 +113,72 @@ function intensityLevel(words: number, max: number): number {
 	return 4;
 }
 
-function calcStreaks(history: Record<string, DailyRecord>): { current: number; longest: number } {
-	let current = 0, longest = 0, streak = 0;
-	const d = new Date();
-	for (let i = 0; i < 1095; i++) {
-		const key = dateToKey(d);
-		if (history[key] && history[key].totalWords > 0) {
-			streak++;
-			if (streak > longest) longest = streak;
-		} else {
-			if (i === 0) { d.setDate(d.getDate() - 1); continue; }
-			if (current === 0) current = streak;
-			streak = 0;
+function positiveHistoryKeys(history: Record<string, DailyRecord>, year?: number): string[] {
+	return Object.entries(history)
+		.filter(([key, rec]) => rec.totalWords > 0 && (year === undefined || key.startsWith(`${year}-`)))
+		.map(([key]) => key)
+		.sort();
+}
+
+function previousDayKey(key: string): string {
+	const [year, month, day] = key.split("-").map(Number);
+	const date = new Date(year, month - 1, day);
+	date.setDate(date.getDate() - 1);
+	return dateToKey(date);
+}
+
+function calcCurrentStreakFromSet(keys: Set<string>, anchor: Date): number {
+	let current = 0;
+	let cursor = new Date(anchor);
+	let skippedAnchor = false;
+
+	while (true) {
+		const key = dateToKey(cursor);
+		if (keys.has(key)) {
+			current++;
+			cursor.setDate(cursor.getDate() - 1);
+			continue;
 		}
-		d.setDate(d.getDate() - 1);
+		if (!skippedAnchor) {
+			skippedAnchor = true;
+			cursor.setDate(cursor.getDate() - 1);
+			continue;
+		}
+		return current;
 	}
-	if (current === 0) current = streak;
-	if (streak > longest) longest = streak;
-	return { current, longest };
+}
+
+function calcLongestStreak(keys: string[]): number {
+	let longest = 0;
+	let streak = 0;
+	let prev: string | null = null;
+
+	for (const key of keys) {
+		if (prev && previousDayKey(key) === prev) {
+			streak++;
+		} else {
+			streak = 1;
+		}
+		if (streak > longest) longest = streak;
+		prev = key;
+	}
+
+	return longest;
+}
+
+function calcStreaks(history: Record<string, DailyRecord>, year?: number): { current: number; longest: number } {
+	const keys = positiveHistoryKeys(history, year);
+	if (keys.length === 0) return { current: 0, longest: 0 };
+
+	const keySet = new Set(keys);
+	const anchor = year === undefined || year === new Date().getFullYear()
+		? new Date()
+		: new Date(year, 11, 31);
+
+	return {
+		current: calcCurrentStreakFromSet(keySet, anchor),
+		longest: calcLongestStreak(keys),
+	};
 }
 
 function yearMax(history: Record<string, DailyRecord>, year: number): number {
@@ -184,8 +236,6 @@ function buildYearGrid(year: number): { dayIndex: number; date: Date | null }[][
 
 export default class WordGoalWebhookPlugin extends Plugin {
 	data: PluginData;
-
-	private notifiedToday: boolean = false;
 	private statusBarEl: HTMLElement | null = null;
 	private visibilityHandler: () => void;
 
@@ -222,6 +272,13 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			})
 		);
 
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				this.initializeSnapshotFromLeaf(leaf);
+				this.updateStatusBar();
+			})
+		);
+
 		// Status bar
 		this.statusBarEl = this.addStatusBarItem();
 		this.statusBarEl.addClass("wg-statusbar");
@@ -237,7 +294,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		};
 		document.addEventListener("visibilitychange", this.visibilityHandler);
 
-		this.app.workspace.onLayoutReady(() => this.activateSidebar());
+		this.app.workspace.onLayoutReady(() => {
+			this.initializeOpenViewSnapshots();
+			this.activateSidebar();
+		});
 	}
 
 	async onunload() {
@@ -267,31 +327,70 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (this.data.todaysDate !== today) {
 			this.data.todaysDate = today;
 			this.data.todaysWordCount = {};
-			this.notifiedToday = false;
 		}
-		// Also update today's history entry from any existing snapshots
 		this.syncTodayHistory();
 	}
 
 	private finalizeDay(dateKey: string) {
-		let total = 0;
-		for (const snap of Object.values(this.data.todaysWordCount)) {
-			total += Math.max(snap.current - snap.initial, 0);
-		}
-		if (total > 0 || !(dateKey in this.data.history)) {
-			this.data.history[dateKey] = { totalWords: total };
-		}
+		this.syncHistoryEntry(dateKey, this.todaysTotal());
 	}
 
 	private finalizeToday() {
 		if (this.data.todaysDate) {
-			this.data.history[this.data.todaysDate] = { totalWords: this.todaysTotal() };
+			this.syncHistoryEntry(this.data.todaysDate, this.todaysTotal());
 		}
 	}
 
 	private syncTodayHistory() {
-		const today = todayKey();
-		this.data.history[today] = { totalWords: this.todaysTotal() };
+		this.syncHistoryEntry(todayKey(), this.todaysTotal());
+	}
+
+	private syncHistoryEntry(dateKey: string, totalWords: number) {
+		const existing = this.data.history[dateKey];
+		if (totalWords > 0) {
+			this.data.history[dateKey] = { totalWords };
+			return;
+		}
+		if (existing?.totalWords && existing.totalWords > 0) return;
+		delete this.data.history[dateKey];
+	}
+
+	private resolveMarkdownViewForEditor(editor: Editor): MarkdownView | null {
+		const leaves = this.app.workspace.getLeavesOfType("markdown");
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.editor === editor) {
+				return view;
+			}
+		}
+		return null;
+	}
+
+	private ensureFileSnapshot(file: TFile, content: string) {
+		if (this.data.todaysDate !== todayKey()) {
+			this.handleDayRollover();
+		}
+
+		const path = file.path;
+		if (!this.data.todaysWordCount[path]) {
+			const words = countWords(content);
+			this.data.todaysWordCount[path] = { initial: words, current: words };
+		}
+	}
+
+	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
+		if (!leaf) return;
+		const view = leaf.view;
+		if (!(view instanceof MarkdownView)) return;
+		const file = view.file;
+		if (!file) return;
+		this.ensureFileSnapshot(file, view.editor.getValue());
+	}
+
+	private initializeOpenViewSnapshots() {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			this.initializeSnapshotFromLeaf(leaf);
+		}
 	}
 
 	// ── Word tracking (fast, synchronous, runs on every keystroke) ───────
@@ -301,23 +400,17 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			this.handleDayRollover();
 		}
 
-		const file = this.app.workspace.getActiveFile();
+		const view = this.resolveMarkdownViewForEditor(editor);
+		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
 
 		const content = editor.getValue();
 		const currentWords = countWords(content);
-		const path = file.path;
-
-		const existing = this.data.todaysWordCount[path];
-		if (!existing) {
-			this.data.todaysWordCount[path] = { initial: currentWords, current: currentWords };
-		} else {
-			existing.current = currentWords;
-		}
+		this.ensureFileSnapshot(file, content);
+		this.data.todaysWordCount[file.path].current = currentWords;
 
 		// Check goal
-		if (!this.notifiedToday && this.todaysTotal() >= this.settings.dailyGoal) {
-			this.notifiedToday = true;
+		if (this.data.lastWebhookSentDate !== this.data.todaysDate && this.todaysTotal() >= this.settings.dailyGoal) {
 			new Notice(`🎉 You hit ${this.settings.dailyGoal} words today!`);
 			this.fireWebhook();
 		}
@@ -416,6 +509,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (!this.data.history) this.data.history = {};
 		if (!this.data.todaysWordCount) this.data.todaysWordCount = {};
 		if (!this.data.todaysDate) this.data.todaysDate = "";
+		if (!this.data.lastWebhookSentDate) this.data.lastWebhookSentDate = "";
 	}
 
 	async savePluginData() { await this.saveData(this.data); }
@@ -426,7 +520,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const url = this.settings.webhookUrl.trim();
 		if (!url) { new Notice("Word Goal: no webhook URL configured."); return; }
 		try {
-			await fetch(url, {
+			const response = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -437,6 +531,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 					timestamp: new Date().toISOString(),
 				}),
 			});
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}`);
+			}
+			this.data.lastWebhookSentDate = this.data.todaysDate;
+			await this.savePluginData();
 			new Notice("Word Goal: webhook sent ✓");
 		} catch (err) {
 			console.error("Word Goal webhook error:", err);
@@ -463,7 +562,7 @@ class SidebarHeatmapView extends ItemView {
 	async onOpen() { this.refresh(); }
 
 	refresh() {
-		const root = this.containerEl.children[1] as HTMLElement;
+		const root = this.contentEl;
 		root.empty();
 		root.addClass("wg-sidebar");
 
@@ -570,7 +669,7 @@ class DetailModal extends Modal {
 
 		// ── Stats cards (numbers in chosen color) ──
 		const stats = yearStats(history, year);
-		const { current, longest } = calcStreaks(history);
+		const { current, longest } = calcStreaks(history, year);
 		const statsRow = contentEl.createDiv({ cls: "wg-dt-stats" });
 
 		this.statCard(statsRow, stats.total.toLocaleString("de-DE"), "total words", color);
