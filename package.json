@@ -1,8 +1,18 @@
 {
-  "name": "obsidian-word-goal-webhook",
+  "name": "obsidian-writing-tracker-heatmap-streaks",
   "version": "3.1.0",
-  "description": "Daily word goal webhook + writing heatmap",
+  "description": "Writing tracker with heatmap, streaks, and webhook support",
   "main": "main.js",
+  "license": "MIT",
+  "author": "Laszlo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viszkit/obsidian-writing-streak.git"
+  },
+  "homepage": "https://github.com/viszkit/obsidian-writing-streak#readme",
+  "bugs": {
+    "url": "https://github.com/viszkit/obsidian-writing-streak/issues"
+  },
   "scripts": {
     "build": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node",
     "dev": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node --watch"

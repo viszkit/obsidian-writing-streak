@@ -1,89 +1,53 @@
-# Word Goal Webhook
+# Writing Tracker Heatmap Streaks
 
-An [Obsidian](https://obsidian.md) plugin that tracks your daily word count, fires a webhook when you hit your goal, and shows a GitHub-style writing heatmap in the sidebar.
-
----
+Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin that tracks the new words you write each day, sends a webhook when you hit your goal, and shows your writing history in a compact heatmap sidebar with a detailed stats view.
 
 ## Features
 
-- **Daily word tracking** — counts only *new* words written today, not the total length of your files. Survives Obsidian restarts and mobile sync.
-- **Webhook notification** — sends a POST request to any URL when you reach your daily goal.
-- **Sidebar heatmap** — a compact vertical heatmap of the current year, live today counter, dual streak pills, and a subtle goal-met marker on successful days.
-- **Detail modal** — full stats view with year navigation, five stat cards, a horizontal heatmap, and a monthly bar chart.
-- **Status bar dot** — a small dot in the status bar that lerps from grey to your chosen colour as you approach the goal.
-- **8 colour presets** — pick a heatmap colour from the settings panel.
-- **Daily Stats importer** — migrate existing history from the [obsidian-daily-stats](https://github.com/dhruvik7/obsidian-daily-stats) plugin with one command.
-
----
+- Track daily new words instead of total file length.
+- Send a webhook when the configured daily word goal is reached.
+- View a sidebar heatmap with today's count and current streaks.
+- Open a detailed stats modal with yearly history and monthly totals.
+- Import past history from the `obsidian-daily-stats` plugin.
 
 ## Installation
 
-### Manual
+### From community plugins
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/viszkit/obsidian-writing-streak/releases).
-2. Copy them into your vault at:
-   ```
-   <vault>/.obsidian/plugins/word-goal-webhook/
-   ```
-3. Run
-```bash
-npm install
-npm run build
-```
-4. Reload Obsidian and enable the plugin under **Settings → Community plugins**.
-5. Choose Webhook destination and color
+Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins browser once the plugin has been approved and published.
 
-### Build from source
+### Manual installation
 
-```bash
-git clone https://github.com/viszkit/obsidian-writing-streak.git
-cd obsidian-writing-streak
-npm install
-npm run build
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest GitHub release](https://github.com/viszkit/obsidian-writing-streak/releases).
+2. Create this folder in your vault:
+
+```text
+<vault>/.obsidian/plugins/word-goal-webhook/
 ```
 
-Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's plugin folder as above.
-
----
+3. Copy the three release files into that folder.
+4. Reload Obsidian.
+5. Enable **Writing Tracker Heatmap Streaks** under **Settings -> Community plugins**.
 
 ## Usage
 
-### Sidebar
+The plugin opens a sidebar heatmap on startup. Each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
 
-The heatmap panel opens automatically in the right sidebar on startup. Each cell represents one week-column of the current year; intensity reflects how many words you wrote that day relative to your personal maximum. Days where you met your goal get a tiny corner marker. Hover a cell to see the date and exact word count.
+Commands:
 
-The sidebar streak area separates the two concepts clearly:
-- **Writing streak** — consecutive days with any writing at all
-- **Goal met streak** — consecutive days where you reached your daily goal
+- `Open writing heatmap`
+- `Open writing stats`
+- `Show today's word count`
+- `Import history from Daily Stats plugin`
 
-If you have not written yet today, the current streak can still reflect the streak up to yesterday.
+Settings:
 
-The **⤢ expand button** in the top-right corner opens the full detail modal.
+- **Webhook URL**: endpoint to call when the daily goal is met.
+- **Daily word goal**: number of new words required before the webhook fires.
+- **Heatmap colour**: choose one of the built-in color presets.
+- **Goal-met visual cue**: show or hide the marker on days where the goal was reached.
 
-### Detail modal
-
-Open it via the expand button or the command **Open writing stats**. Use the ← → arrows to browse previous years. The modal shows:
-
-| Stat | Description |
-|---|---|
-| Total words | All words written in the selected year |
-| Days written | Number of days with at least one word |
-| Daily average | Total ÷ days written |
-
-The full heatmap keeps the same layout as before, but the month labels above it are removed so the grid stays visually aligned.
-
-### Commands
-
-| Command | Description |
-|---|---|
-| Open writing heatmap | Reveal the sidebar panel |
-| Open writing stats | Open the full detail modal |
-| Show today's word count | Quick notice with today's count vs. goal |
-| Import history from Daily Stats plugin | One-time migration from obsidian-daily-stats |
-
-### Webhook
-
-When you reach your daily goal, the plugin fires a `POST` request with a JSON body:
+When the goal is reached, the plugin sends a `POST` request with a JSON payload like:
 
 ```json
 {
@@ -95,33 +59,22 @@ When you reach your daily goal, the plugin fires a `POST` request with a JSON bo
 }
 ```
 
----
+## Data and privacy
 
-## Settings
+- Plugin data is stored in your vault under `.obsidian/plugins/word-goal-webhook/data.json`.
+- The plugin makes network requests only when you configure a webhook URL and your daily goal is reached.
+- The plugin does not require an account, payment, ads, or telemetry.
+- The source code in this repository is open source.
 
-| Setting | Default | Description |
-|---|---|---|
-| Webhook URL | *(empty)* | The endpoint to POST to when the goal is reached |
-| Daily word goal | `500` | Number of new words needed to trigger the webhook |
-| Heatmap colour | Green `#39d353` | Choose from 8 presets: Green, Teal, Blue, Purple, Pink, Orange, Yellow, Red |
-| Goal-met visual cue | `On` | Show or hide the small marker on heatmap days where the goal was met |
+## Development
 
----
+```bash
+npm install
+npm run build
+```
 
-## Data
-
-All data is stored in your vault at `.obsidian/plugins/word-goal-webhook/data.json`. Per-file word snapshots are persisted so your count survives restarts and mobile sync. The plugin saves immediately whenever the app goes to the background.
-
-Word counts use local timezone dates throughout — no UTC drift.
-
----
-
-## Importing from Daily Stats
-
-If you previously used [obsidian-daily-stats](https://github.com/dhruvik7/obsidian-daily-stats), run the command **Import history from Daily Stats plugin**. It reads that plugin's `data.json`, converts its date format, and merges the history into this plugin — skipping any days you already have data for.
-
----
+Create releases by attaching `main.js`, `manifest.json`, and `styles.css` to a GitHub release whose tag matches the manifest version.
 
 ## License
 
-MIT
+[MIT](LICENSE)
