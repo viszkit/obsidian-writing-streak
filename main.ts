@@ -37,7 +37,10 @@ interface FileSnapshot {
 	current: number;
 }
 
-interface DailyRecord { totalWords: number; }
+interface DailyRecord {
+	totalWords: number;
+	goalMet?: boolean;
+}
 
 interface PluginData {
 	settings: WordGoalSettings;
@@ -55,12 +58,14 @@ interface WordGoalSettings {
 	webhookUrl: string;
 	dailyGoal: number;
 	heatmapColor: string;
+	showGoalMetCue: boolean;
 }
 
 const DEFAULT_SETTINGS: WordGoalSettings = {
 	webhookUrl: "",
 	dailyGoal: 500,
 	heatmapColor: "#39d353",
+	showGoalMetCue: true,
 };
 
 const DEFAULT_DATA: PluginData = {
@@ -120,6 +125,17 @@ function positiveHistoryKeys(history: Record<string, DailyRecord>, year?: number
 		.sort();
 }
 
+function historyKeysByPredicate(
+	history: Record<string, DailyRecord>,
+	matches: (record: DailyRecord) => boolean,
+	year?: number
+): string[] {
+	return Object.entries(history)
+		.filter(([key, rec]) => matches(rec) && (year === undefined || key.startsWith(`${year}-`)))
+		.map(([key]) => key)
+		.sort();
+}
+
 function previousDayKey(key: string): string {
 	const [year, month, day] = key.split("-").map(Number);
 	const date = new Date(year, month - 1, day);
@@ -139,7 +155,7 @@ function calcCurrentStreakFromSet(keys: Set<string>, anchor: Date): number {
 			cursor.setDate(cursor.getDate() - 1);
 			continue;
 		}
-		if (!skippedAnchor) {
+		if (current === 0 && !skippedAnchor) {
 			skippedAnchor = true;
 			cursor.setDate(cursor.getDate() - 1);
 			continue;
@@ -166,8 +182,7 @@ function calcLongestStreak(keys: string[]): number {
 	return longest;
 }
 
-function calcStreaks(history: Record<string, DailyRecord>, year?: number): { current: number; longest: number } {
-	const keys = positiveHistoryKeys(history, year);
+function calcStreaksFromKeys(keys: string[], year?: number): { current: number; longest: number } {
 	if (keys.length === 0) return { current: 0, longest: 0 };
 
 	const keySet = new Set(keys);
@@ -179,6 +194,22 @@ function calcStreaks(history: Record<string, DailyRecord>, year?: number): { cur
 		current: calcCurrentStreakFromSet(keySet, anchor),
 		longest: calcLongestStreak(keys),
 	};
+}
+
+function calcStreaks(
+	history: Record<string, DailyRecord>,
+	matches: (record: DailyRecord) => boolean,
+	year?: number
+): { current: number; longest: number } {
+	return calcStreaksFromKeys(historyKeysByPredicate(history, matches, year), year);
+}
+
+function isWritingDay(record: DailyRecord): boolean {
+	return record.totalWords > 0;
+}
+
+function isGoalMetDay(record: DailyRecord): boolean {
+	return record.goalMet === true;
 }
 
 function yearMax(history: Record<string, DailyRecord>, year: number): number {
@@ -205,6 +236,21 @@ function getMonthlySums(history: Record<string, DailyRecord>, year: number): num
 		sums[parseInt(key.slice(5, 7), 10) - 1] += rec.totalWords;
 	}
 	return sums;
+}
+
+function getHeatmapCellState(
+	history: Record<string, DailyRecord>,
+	date: Date,
+	max: number
+): { words: number; level: number; goalMet: boolean } {
+	const key = dateToKey(date);
+	const record = history[key];
+	const words = record?.totalWords ?? 0;
+	return {
+		words,
+		level: intensityLevel(words, max),
+		goalMet: record?.goalMet === true,
+	};
 }
 
 /** Build the calendar grid data for a year. Returns weeks (arrays of 7 slots). */
@@ -348,7 +394,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private syncHistoryEntry(dateKey: string, totalWords: number) {
 		const existing = this.data.history[dateKey];
 		if (totalWords > 0) {
-			this.data.history[dateKey] = { totalWords };
+			this.data.history[dateKey] = {
+				totalWords,
+				goalMet: existing?.goalMet === true || totalWords >= this.settings.dailyGoal,
+			};
 			return;
 		}
 		if (existing?.totalWords && existing.totalWords > 0) return;
@@ -451,7 +500,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 				// Only import if we don't already have data for that day
 				if (!this.data.history[isoKey] || this.data.history[isoKey].totalWords === 0) {
-					this.data.history[isoKey] = { totalWords: words };
+					this.data.history[isoKey] = {
+						totalWords: words,
+						goalMet: words >= this.settings.dailyGoal,
+					};
 					imported++;
 				}
 			}
@@ -510,6 +562,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (!this.data.todaysWordCount) this.data.todaysWordCount = {};
 		if (!this.data.todaysDate) this.data.todaysDate = "";
 		if (!this.data.lastWebhookSentDate) this.data.lastWebhookSentDate = "";
+		for (const record of Object.values(this.data.history)) {
+			if (record.totalWords > 0 && record.goalMet === undefined) {
+				record.goalMet = record.totalWords >= this.data.settings.dailyGoal;
+			}
+		}
 	}
 
 	async savePluginData() { await this.saveData(this.data); }
@@ -572,7 +629,6 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Top bar ──
 		const topBar = root.createDiv({ cls: "wg-sb-topbar" });
-		topBar.createSpan({ text: "Writing", cls: "wg-sb-title" });
 		const expandBtn = topBar.createEl("button", { cls: "wg-sb-expand-btn" });
 		setIcon(expandBtn, "maximize-2");
 		expandBtn.setAttribute("aria-label", "Open detailed stats");
@@ -599,9 +655,7 @@ class SidebarHeatmapView extends ItemView {
 					continue;
 				}
 
-				const key = dateToKey(slot.date);
-				const words = history[key]?.totalWords ?? 0;
-				const level = intensityLevel(words, max);
+				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, max);
 				const cell = row.createDiv({ cls: "wg-sb-cell" });
 
 				if (level > 0) {
@@ -609,6 +663,7 @@ class SidebarHeatmapView extends ItemView {
 				} else {
 					cell.addClass("wg-sb-cell-empty");
 				}
+				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
 
 				const dateStr = slot.date.toLocaleDateString("de-DE", { day: "numeric", month: "short" });
 				cell.dataset.tooltip = `${dateStr}: ${words}`;
@@ -618,19 +673,20 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Streak section at bottom ──
 		const streakSection = root.createDiv({ cls: "wg-sb-streak-section" });
-		streakSection.createDiv({ text: "Streak", cls: "wg-sb-streak-title" });
-
-		const { current, longest } = calcStreaks(history);
+		const writing = calcStreaks(history, isWritingDay);
+		const goalMet = calcStreaks(history, isGoalMetDay);
 		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
-		this.streakPill(streakRow, "🔥", current, "current");
-		this.streakPill(streakRow, "👑", longest, "best");
+		this.streakCard(streakRow, "✍", "Writing streak", writing.current, writing.longest);
+		this.streakCard(streakRow, "🎯", "Goal met streak", goalMet.current, goalMet.longest);
 	}
 
-	private streakPill(parent: HTMLElement, icon: string, value: number, label: string) {
-		const pill = parent.createDiv({ cls: "wg-sb-pill" });
-		pill.createSpan({ text: icon, cls: "wg-sb-pill-icon" });
-		pill.createSpan({ text: `${value}`, cls: "wg-sb-pill-num" });
-		pill.createSpan({ text: label, cls: "wg-sb-pill-label" });
+	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number) {
+		const card = parent.createDiv({ cls: "wg-sb-streak-card" });
+		const header = card.createDiv({ cls: "wg-sb-streak-card-header" });
+		header.createSpan({ text: icon, cls: "wg-sb-streak-card-icon" });
+		header.createSpan({ text: title, cls: "wg-sb-streak-card-title" });
+		card.createDiv({ text: `${current} days`, cls: "wg-sb-streak-card-current" });
+		card.createDiv({ text: `Best: ${longest} days`, cls: "wg-sb-streak-card-best" });
 	}
 }
 
@@ -669,49 +725,21 @@ class DetailModal extends Modal {
 
 		// ── Stats cards (numbers in chosen color) ──
 		const stats = yearStats(history, year);
-		const { current, longest } = calcStreaks(history, year);
 		const statsRow = contentEl.createDiv({ cls: "wg-dt-stats" });
 
 		this.statCard(statsRow, stats.total.toLocaleString("de-DE"), "total words", color);
 		this.statCard(statsRow, `${stats.days}`, "days written", color);
 		this.statCard(statsRow, stats.avg.toLocaleString("de-DE"), "daily average", color);
-		this.statCard(statsRow, `${current}`, "current streak", color);
-		this.statCard(statsRow, `${longest}`, "longest streak", color);
 
 		// ── Horizontal heatmap ──
 		const max = yearMax(history, year);
 		const weeks = buildYearGrid(year);
-
-		// Collect month start positions
-		let lastMonth = -1;
-		const monthPositions: { week: number; month: number }[] = [];
-		for (let w = 0; w < weeks.length; w++) {
-			for (const slot of weeks[w]) {
-				if (slot.date) {
-					const m = slot.date.getMonth();
-					if (m !== lastMonth) { lastMonth = m; monthPositions.push({ week: w, month: m }); break; }
-				}
-			}
-		}
 
 		// Single scrollable wrapper for months + grid
 		const scrollWrap = contentEl.createDiv({ cls: "wg-dt-scroll-wrap" });
 
 		// Inner container that has the actual width
 		const scrollInner = scrollWrap.createDiv({ cls: "wg-dt-scroll-inner" });
-
-		// Month labels row (inside scroll)
-		const monthRow = scrollInner.createDiv({ cls: "wg-dt-months" });
-		monthRow.createDiv({ cls: "wg-dt-month-spacer" });
-		let lastEnd = 0;
-		for (const mp of monthPositions) {
-			if (mp.week > lastEnd) {
-				const sp = monthRow.createSpan({ cls: "wg-dt-mlabel-spacer" });
-				sp.style.width = `${(mp.week - lastEnd) * 14}px`;
-			}
-			monthRow.createSpan({ text: MONTHS[mp.month], cls: "wg-dt-mlabel" });
-			lastEnd = mp.week + 1;
-		}
 
 		// Heatmap grid (inside scroll)
 		const heatWrap = scrollInner.createDiv({ cls: "wg-dt-heatmap" });
@@ -728,9 +756,7 @@ class DetailModal extends Modal {
 			for (const slot of weeks[w]) {
 				if (!slot.date) { col.createDiv({ cls: "wg-dt-cell wg-dt-blank" }); continue; }
 
-				const key = dateToKey(slot.date);
-				const words = history[key]?.totalWords ?? 0;
-				const level = intensityLevel(words, max);
+				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, max);
 				const cell = col.createDiv({ cls: "wg-dt-cell" });
 
 				if (level > 0) {
@@ -738,6 +764,7 @@ class DetailModal extends Modal {
 				} else {
 					cell.addClass("wg-dt-cell-zero");
 				}
+				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
 
 				const dateStr = slot.date.toLocaleDateString("de-DE", {
 					weekday: "short", day: "numeric", month: "short", year: "numeric",
@@ -779,7 +806,9 @@ class DetailModal extends Modal {
 		const card = parent.createDiv({ cls: "wg-dt-stat" });
 		const num = card.createDiv({ text: value, cls: "wg-dt-stat-num" });
 		num.style.color = color;
-		card.createDiv({ text: label, cls: "wg-dt-stat-label" });
+		for (const line of label.split("\n")) {
+			card.createDiv({ text: line, cls: "wg-dt-stat-label" });
+		}
 	}
 }
 
@@ -847,5 +876,17 @@ class WordGoalSettingTab extends PluginSettingTab {
 				this.display();
 			});
 		}
+
+		new Setting(containerEl)
+			.setName("Goal-met visual cue")
+			.setDesc("Show the small marker on days where the daily word goal was met")
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.showGoalMetCue)
+				.onChange(async (value) => {
+					this.plugin.settings.showGoalMetCue = value;
+					await this.plugin.savePluginData();
+					this.plugin.refreshSidebar();
+				})
+			);
 	}
 }

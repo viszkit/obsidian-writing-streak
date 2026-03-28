@@ -8,7 +8,7 @@ An [Obsidian](https://obsidian.md) plugin that tracks your daily word count, fir
 
 - **Daily word tracking** — counts only *new* words written today, not the total length of your files. Survives Obsidian restarts and mobile sync.
 - **Webhook notification** — sends a POST request to any URL when you reach your daily goal.
-- **Sidebar heatmap** — a compact vertical heatmap of the current year, live today counter, and streak pills pinned to the bottom.
+- **Sidebar heatmap** — a compact vertical heatmap of the current year, live today counter, dual streak pills, and a subtle goal-met marker on successful days.
 - **Detail modal** — full stats view with year navigation, five stat cards, a horizontal heatmap, and a monthly bar chart.
 - **Status bar dot** — a small dot in the status bar that lerps from grey to your chosen colour as you approach the goal.
 - **8 colour presets** — pick a heatmap colour from the settings panel.
@@ -50,7 +50,13 @@ Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's plugin 
 
 ### Sidebar
 
-The heatmap panel opens automatically in the right sidebar on startup. Each cell represents one week-column of the current year; intensity reflects how many words you wrote that day relative to your personal maximum. Hover a cell to see the date and exact word count.
+The heatmap panel opens automatically in the right sidebar on startup. Each cell represents one week-column of the current year; intensity reflects how many words you wrote that day relative to your personal maximum. Days where you met your goal get a tiny corner marker. Hover a cell to see the date and exact word count.
+
+The sidebar streak area separates the two concepts clearly:
+- **Writing streak** — consecutive days with any writing at all
+- **Goal met streak** — consecutive days where you reached your daily goal
+
+If you have not written yet today, the current streak can still reflect the streak up to yesterday.
 
 The **⤢ expand button** in the top-right corner opens the full detail modal.
 
@@ -63,8 +69,8 @@ Open it via the expand button or the command **Open writing stats**. Use the ←
 | Total words | All words written in the selected year |
 | Days written | Number of days with at least one word |
 | Daily average | Total ÷ days written |
-| Current streak | Consecutive days up to today |
-| Longest streak | All-time best consecutive run |
+
+The full heatmap keeps the same layout as before, but the month labels above it are removed so the grid stays visually aligned.
 
 ### Commands
 
@@ -98,6 +104,7 @@ When you reach your daily goal, the plugin fires a `POST` request with a JSON bo
 | Webhook URL | *(empty)* | The endpoint to POST to when the goal is reached |
 | Daily word goal | `500` | Number of new words needed to trigger the webhook |
 | Heatmap colour | Green `#39d353` | Choose from 8 presets: Green, Teal, Blue, Purple, Pink, Orange, Yellow, Red |
+| Goal-met visual cue | `On` | Show or hide the small marker on heatmap days where the goal was met |
 
 ---
 
