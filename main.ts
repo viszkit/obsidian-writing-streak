@@ -285,6 +285,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	data: PluginData;
 	private statusBarEl: HTMLElement | null = null;
 	private visibilityHandler: () => void;
+	private webhookSendInFlightDate: string | null = null;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -460,7 +461,12 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.data.todaysWordCount[file.path].current = currentWords;
 
 		// Check goal
-		if (this.data.lastWebhookSentDate !== this.data.todaysDate && this.todaysTotal() >= this.settings.dailyGoal) {
+		if (
+			this.todaysTotal() >= this.settings.dailyGoal &&
+			this.data.lastWebhookSentDate !== this.data.todaysDate &&
+			this.webhookSendInFlightDate !== this.data.todaysDate
+		) {
+			this.webhookSendInFlightDate = this.data.todaysDate;
 			new Notice(`🎉 You hit ${this.settings.dailyGoal} words today!`);
 			this.fireWebhook();
 		}
@@ -576,7 +582,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 	private async fireWebhook() {
 		const url = this.settings.webhookUrl.trim();
-		if (!url) { new Notice("Word Goal: no webhook URL configured."); return; }
+		if (!url) {
+			this.webhookSendInFlightDate = null;
+			new Notice("Word Goal: no webhook URL configured.");
+			return;
+		}
 		try {
 			await requestUrl({
 				url,
@@ -596,6 +606,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		} catch (err) {
 			console.error("Word Goal webhook error:", err);
 			new Notice("Word Goal: webhook failed.");
+		} finally {
+			this.webhookSendInFlightDate = null;
 		}
 	}
 }
