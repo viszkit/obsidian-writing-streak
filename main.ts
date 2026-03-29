@@ -63,6 +63,8 @@ interface WordGoalSettings {
 	showGoalMetCue: boolean;
 }
 
+type StreakCardState = "idle" | "active" | "best-active";
+
 const DEFAULT_SETTINGS: WordGoalSettings = {
 	webhookUrl: "",
 	dailyGoal: 500,
@@ -97,6 +99,11 @@ function hexToRgba(hex: string, alpha: number): string {
 	const g = parseInt(hex.slice(3, 5), 16);
 	const b = parseInt(hex.slice(5, 7), 16);
 	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getStreakCardState(current: number, longest: number): StreakCardState {
+	if (current <= 0) return "idle";
+	return current === longest ? "best-active" : "active";
 }
 
 /** Lerp between two hex colors */
@@ -832,12 +839,18 @@ class SidebarHeatmapView extends ItemView {
 		const writing = calcStreaks(history, isWritingDay);
 		const goalMet = calcStreaks(history, isGoalMetDay);
 		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
-		this.streakCard(streakRow, "✍", "Writing streak", writing.current, writing.longest);
-		this.streakCard(streakRow, "🎯", "Goal streak", goalMet.current, goalMet.longest);
+		this.streakCard(streakRow, "✍", "Writing streak", writing.current, writing.longest, color);
+		this.streakCard(streakRow, "🎯", "Goal streak", goalMet.current, goalMet.longest, color);
 	}
 
-	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number) {
+	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number, color: string) {
+		const state = getStreakCardState(current, longest);
 		const card = parent.createDiv({ cls: "wg-sb-streak-card" });
+		card.addClass(`wg-sb-streak-card-${state}`);
+		card.style.setProperty("--wg-streak-accent", color);
+		card.style.setProperty("--wg-streak-accent-soft", hexToRgba(color, 0.35));
+		card.style.setProperty("--wg-streak-accent-strong", hexToRgba(color, 0.95));
+		card.style.setProperty("--wg-streak-text-accent", state === "best-active" ? color : hexToRgba(color, 0.8));
 		const header = card.createDiv({ cls: "wg-sb-streak-card-header" });
 		header.createSpan({ text: icon, cls: "wg-sb-streak-card-icon" });
 		header.createSpan({ text: title, cls: "wg-sb-streak-card-title" });

@@ -175,6 +175,16 @@
   border: 1px solid var(--background-modifier-border);
   min-width: 0;
   flex: 1;
+  box-shadow: inset 0 0 0 0 transparent;
+  transition: box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.wg-sb-streak-card-active {
+  box-shadow: inset 0 0 0 2px var(--wg-streak-accent-soft);
+}
+
+.wg-sb-streak-card-best-active {
+  box-shadow: inset 0 0 0 2px var(--wg-streak-accent-strong);
 }
 
 .wg-sb-streak-card-header {
@@ -199,6 +209,11 @@
   font-weight: 700;
   color: var(--text-normal);
   line-height: 1;
+}
+
+.wg-sb-streak-card-active .wg-sb-streak-card-current,
+.wg-sb-streak-card-best-active .wg-sb-streak-card-current {
+  color: var(--wg-streak-text-accent);
 }
 
 .wg-sb-streak-card-best {
