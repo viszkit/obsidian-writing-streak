@@ -92,6 +92,10 @@ function dateToKey(date: Date): string {
 
 function todayKey(): string { return dateToKey(new Date()); }
 
+function isToday(date: Date): boolean {
+	return dateToKey(date) === todayKey();
+}
+
 function countWords(text: string): number { return (text.match(/\S+/g) || []).length; }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -769,6 +773,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 class SidebarHeatmapView extends ItemView {
 	plugin: WordGoalWebhookPlugin;
+	private shouldScrollToToday = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: WordGoalWebhookPlugin) {
 		super(leaf);
@@ -778,7 +783,10 @@ class SidebarHeatmapView extends ItemView {
 	getViewType() { return VIEW_TYPE_HEATMAP; }
 	getDisplayText() { return "Writing Heatmap"; }
 	getIcon() { return "flame"; }
-	async onOpen() { this.refresh(); }
+	async onOpen() {
+		this.shouldScrollToToday = true;
+		this.refresh();
+	}
 
 	refresh() {
 		const root = this.contentEl;
@@ -827,11 +835,20 @@ class SidebarHeatmapView extends ItemView {
 					cell.addClass("wg-sb-cell-empty");
 				}
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
+				if (isToday(slot.date)) cell.addClass("wg-day-today");
 
 				const dateStr = slot.date.toLocaleDateString("de-DE", { day: "numeric", month: "short" });
 				cell.dataset.tooltip = `${dateStr}: ${words}`;
 				cell.addClass("wg-tooltip");
 			}
+		}
+
+		if (this.shouldScrollToToday) {
+			this.shouldScrollToToday = false;
+			window.requestAnimationFrame(() => {
+				const todayCell = gridContainer.querySelector<HTMLElement>(".wg-day-today");
+				todayCell?.scrollIntoView({ block: "center", inline: "nearest" });
+			});
 		}
 
 		// ── Streak section at bottom ──
@@ -882,6 +899,7 @@ class DetailModal extends Modal {
 
 		const history = this.plugin.data.history;
 		const year = this.displayYear;
+		const currentYear = new Date().getFullYear();
 		const color = this.plugin.settings.heatmapColor;
 
 		// ── Year nav ──
@@ -890,7 +908,12 @@ class DetailModal extends Modal {
 		btnPrev.addEventListener("click", () => { this.displayYear--; this.render(); });
 		nav.createSpan({ text: `${year}`, cls: "wg-dt-year" });
 		const btnNext = nav.createEl("button", { text: "→", cls: "wg-dt-nav-btn" });
-		btnNext.addEventListener("click", () => { this.displayYear++; this.render(); });
+		btnNext.disabled = year >= currentYear;
+		btnNext.addEventListener("click", () => {
+			if (this.displayYear >= currentYear) return;
+			this.displayYear++;
+			this.render();
+		});
 
 		// ── Stats cards (numbers in chosen color) ──
 		const stats = yearStats(history, year);
@@ -934,6 +957,7 @@ class DetailModal extends Modal {
 					cell.addClass("wg-dt-cell-zero");
 				}
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
+				if (isToday(slot.date)) cell.addClass("wg-day-today");
 
 				const dateStr = slot.date.toLocaleDateString("de-DE", {
 					weekday: "short", day: "numeric", month: "short", year: "numeric",

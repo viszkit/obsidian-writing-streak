@@ -235,6 +235,13 @@
   pointer-events: none;
 }
 
+.wg-day-today {
+  box-shadow:
+    inset 0 0 0 1px var(--background-primary),
+    0 0 0 2px var(--interactive-accent, var(--text-accent));
+  z-index: 1;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    DETAIL MODAL
    ═══════════════════════════════════════════════════════════════════════════ */
