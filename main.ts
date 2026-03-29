@@ -7,12 +7,12 @@ import {
 	TFile,
 	ItemView,
 	WorkspaceLeaf,
-	debounce,
 	Modal,
 	setIcon,
 	Editor,
 	MarkdownView,
 	requestUrl,
+	ButtonComponent,
 } from "obsidian";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -144,13 +144,6 @@ function intensityLevel(words: number, max: number): number {
 	if (ratio <= 0.5) return 2;
 	if (ratio <= 0.75) return 3;
 	return 4;
-}
-
-function positiveHistoryKeys(history: Record<string, DailyRecord>, year?: number): string[] {
-	return Object.entries(history)
-		.filter(([key, rec]) => rec.totalWords > 0 && (year === undefined || key.startsWith(`${year}-`)))
-		.map(([key]) => key)
-		.sort();
 }
 
 function historyKeysByPredicate(
@@ -328,6 +321,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private editorByFilePath = new Map<string, Editor>();
 	private lastObservedWordsByPath = new Map<string, number>();
 	private activeMarkdownEditor: Editor | null = null;
+	private celebrateGoalUntil = 0;
+	private celebrateGoalTimer: number | null = null;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -338,13 +333,21 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 		this.registerView(VIEW_TYPE_HEATMAP, (leaf) => new SidebarHeatmapView(leaf, this));
 
-		this.addCommand({ id: "open-writing-heatmap", name: "Open writing heatmap", callback: () => this.activateSidebar() });
+		this.addCommand({
+			id: "open-writing-heatmap",
+			name: "Open writing heatmap",
+			callback: () => {
+				void this.activateSidebar().catch((err) => console.error("Failed to open writing heatmap:", err));
+			},
+		});
 		this.addCommand({ id: "open-writing-stats", name: "Open writing stats", callback: () => new DetailModal(this.app, this).open() });
 		this.addCommand({ id: "show-daily-word-count", name: "Show today's word count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} words`) });
 		this.addCommand({
 			id: "import-daily-stats",
 			name: "Import history from Daily Stats plugin",
-			callback: () => this.importDailyStats(),
+			callback: () => {
+				void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
+			},
 		});
 
 		this.registerEvent(
@@ -387,25 +390,29 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			if (document.visibilityState === "hidden") {
 				this.syncTodayHistory();
 				this.markDirty({ refreshSidebar: true });
-				void this.flushSave();
+				void this.flushSave().catch((err) => console.error("Failed to flush plugin data on background:", err));
 				return;
 			}
-			void this.reloadSyncedDataAndRefreshUi();
+			void this.reloadSyncedDataAndRefreshUi().catch((err) => console.error("Failed to reload synced plugin data:", err));
 		};
 		document.addEventListener("visibilitychange", this.visibilityHandler);
 
 		this.app.workspace.onLayoutReady(() => {
 			this.refreshMarkdownEditorCache();
 			this.initializeOpenViewSnapshots();
-			void this.handleLayoutReady();
+			void this.handleLayoutReady().catch((err) => console.error("Failed during layout-ready initialization:", err));
 		});
 	}
 
-	async onunload() {
+	onunload() {
 		document.removeEventListener("visibilitychange", this.visibilityHandler);
+		if (this.celebrateGoalTimer !== null) {
+			window.clearTimeout(this.celebrateGoalTimer);
+			this.celebrateGoalTimer = null;
+		}
 		this.finalizeToday();
 		this.markDirty({ refreshSidebar: false });
-		await this.flushSave();
+		void this.flushSave().catch((err) => console.error("Failed to flush plugin data on unload:", err));
 	}
 
 	// ── Today's total — computed from persisted snapshots ─────────────────
@@ -605,9 +612,26 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			this.webhookSendInFlightDate !== this.data.todaysDate
 		) {
 			this.webhookSendInFlightDate = this.data.todaysDate;
+			this.triggerGoalCelebration();
 			new Notice(`🎉 You hit ${this.settings.dailyGoal} words today!`);
 			void this.fireWebhook();
 		}
+	}
+
+	isGoalCelebrating(): boolean {
+		return this.celebrateGoalUntil > Date.now();
+	}
+
+	private triggerGoalCelebration() {
+		this.celebrateGoalUntil = Date.now() + 2200;
+		if (this.celebrateGoalTimer !== null) {
+			window.clearTimeout(this.celebrateGoalTimer);
+		}
+		this.refreshSidebar();
+		this.celebrateGoalTimer = window.setTimeout(() => {
+			this.celebrateGoalTimer = null;
+			this.refreshSidebar();
+		}, 2200);
 	}
 
 	refreshUi() {
@@ -863,11 +887,26 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	// ── Webhook ───────────────────────────────────────────────────────────
 
 	private async fireWebhook() {
+		try {
+			const sent = await this.sendWebhook({ test: false });
+			if (!sent) return;
+			this.data.lastWebhookSentDate = this.data.todaysDate;
+			this.markDirty({ refreshSidebar: true });
+			await this.flushSave();
+		} finally {
+			this.webhookSendInFlightDate = null;
+		}
+	}
+
+	async sendTestWebhook() {
+		await this.sendWebhook({ test: true });
+	}
+
+	private async sendWebhook({ test }: { test: boolean }): Promise<boolean> {
 		const url = this.settings.webhookUrl.trim();
 		if (!url) {
-			this.webhookSendInFlightDate = null;
-			new Notice("Word Goal: no webhook URL configured.");
-			return;
+			new Notice(test ? "Word goal: no webhook URL configured for test." : "Word goal: no webhook URL configured.");
+			return false;
 		}
 		try {
 			await requestUrl({
@@ -880,17 +919,15 @@ export default class WordGoalWebhookPlugin extends Plugin {
 					actual: this.todaysTotal(),
 					date: this.data.todaysDate,
 					timestamp: new Date().toISOString(),
+					test,
 				}),
 			});
-			this.data.lastWebhookSentDate = this.data.todaysDate;
-			this.markDirty({ refreshSidebar: true });
-			await this.flushSave();
-			new Notice("Word Goal: webhook sent ✓");
+			new Notice(test ? "Word goal: test webhook sent ✓" : "Word goal: webhook sent ✓");
+			return true;
 		} catch (err) {
 			console.error("Word Goal webhook error:", err);
-			new Notice("Word Goal: webhook failed.");
-		} finally {
-			this.webhookSendInFlightDate = null;
+			new Notice(test ? "Word goal: test webhook failed." : "Word goal: webhook failed.");
+			return false;
 		}
 	}
 }
@@ -909,11 +946,12 @@ class SidebarHeatmapView extends ItemView {
 	}
 
 	getViewType() { return VIEW_TYPE_HEATMAP; }
-	getDisplayText() { return "Writing Heatmap"; }
+	getDisplayText() { return "Writing heatmap"; }
 	getIcon() { return "flame"; }
-	async onOpen() {
+	onOpen(): Promise<void> {
 		this.shouldScrollToToday = true;
 		this.refresh();
+		return Promise.resolve();
 	}
 
 	refresh() {
@@ -927,7 +965,7 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Top bar ──
 		const topBar = root.createDiv({ cls: "wg-sb-topbar" });
-		topBar.createDiv({ text: "Writing Heatmap", cls: "wg-sb-title" });
+		topBar.createDiv({ text: "Writing heatmap", cls: "wg-sb-title" });
 		const expandBtn = topBar.createEl("button", { cls: "wg-sb-expand-btn" });
 		setIcon(expandBtn, "maximize-2");
 		expandBtn.setAttribute("aria-label", "Open detailed stats");
@@ -935,9 +973,38 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Today counter (live from in-memory snapshots) ──
 		const todayWords = this.plugin.todaysTotal();
+		const goal = this.plugin.settings.dailyGoal;
+		const isOverGoal = todayWords > goal;
+		const fillRatio = Math.min(todayWords / goal, 1);
+		const goalRatio = isOverGoal ? goal / todayWords : 1;
 		const todayEl = root.createDiv({ cls: "wg-sb-today" });
+		todayEl.style.setProperty("--wg-progress-color", color);
+		todayEl.style.setProperty("--wg-progress-color-soft", hexToRgba(color, 0.18));
+		todayEl.style.setProperty("--wg-progress-color-glow", hexToRgba(color, 0.32));
+		if (this.plugin.isGoalCelebrating()) {
+			todayEl.addClass("wg-sb-today-celebrate");
+		}
 		todayEl.createSpan({ text: `${todayWords}`, cls: "wg-sb-today-num" });
-		todayEl.createSpan({ text: ` / ${this.plugin.settings.dailyGoal}`, cls: "wg-sb-today-goal" });
+		const goalEl = todayEl.createSpan({ text: ` / ${goal}`, cls: "wg-sb-today-goal" });
+		if (isOverGoal) {
+			goalEl.addClass("wg-sb-today-goal-overflow");
+		}
+		const progressBar = todayEl.createDiv({ cls: "wg-sb-progress" });
+		if (isOverGoal) {
+			progressBar.addClass("wg-sb-progress-overgoal");
+		}
+		progressBar.style.setProperty("--wg-progress-fill-ratio", String(fillRatio));
+		progressBar.style.setProperty("--wg-progress-goal-ratio", String(goalRatio));
+		progressBar.setAttribute("role", "progressbar");
+		progressBar.setAttribute("aria-label", "Today's writing progress");
+		progressBar.setAttribute("aria-valuemin", "0");
+		progressBar.setAttribute("aria-valuemax", String(Math.max(todayWords, goal)));
+		progressBar.setAttribute("aria-valuenow", String(todayWords));
+		progressBar.setAttribute("aria-valuetext", `${formatLocalizedNumber(todayWords)} words written, ${formatLocalizedNumber(goal)} word goal`);
+		const progressFill = progressBar.createDiv({ cls: "wg-sb-progress-fill" });
+		progressFill.setAttribute("aria-hidden", "true");
+		const progressDivider = progressBar.createDiv({ cls: "wg-sb-progress-divider" });
+		progressDivider.setAttribute("aria-hidden", "true");
 
 		// ── Vertical heatmap (no month labels — just dots filling full width) ──
 		const max = yearMax(history, year);
@@ -963,7 +1030,10 @@ class SidebarHeatmapView extends ItemView {
 					cell.addClass("wg-sb-cell-empty");
 				}
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
-				if (isToday(slot.date)) cell.addClass("wg-day-today");
+				if (isToday(slot.date)) {
+					cell.addClass("wg-day-today");
+					cell.style.setProperty("--wg-today-accent", color);
+				}
 
 				const dateStr = formatLocalizedDate(slot.date, { day: "numeric", month: "short" });
 				cell.dataset.tooltip = `${dateStr}: ${words}`;
@@ -1085,7 +1155,10 @@ class DetailModal extends Modal {
 					cell.addClass("wg-dt-cell-zero");
 				}
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
-				if (isToday(slot.date)) cell.addClass("wg-day-today");
+				if (isToday(slot.date)) {
+					cell.addClass("wg-day-today");
+					cell.style.setProperty("--wg-today-accent", color);
+				}
 
 				const dateStr = formatLocalizedDate(slot.date, {
 					weekday: "short", day: "numeric", month: "short", year: "numeric",
@@ -1145,6 +1218,47 @@ class WordGoalSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	private async persistWebhookUrl(value: string) {
+		this.plugin.settings.webhookUrl = value;
+		this.plugin.markDirty({ refreshSidebar: false });
+		await this.plugin.flushSave();
+	}
+
+	private async runTestWebhook(button: ButtonComponent) {
+		button.setDisabled(true);
+		try {
+			await this.plugin.sendTestWebhook();
+		} finally {
+			button.setDisabled(false);
+		}
+	}
+
+	private async persistDailyWordGoal(value: string) {
+		const n = parseInt(value, 10);
+		if (isNaN(n) || n <= 0) return;
+
+		this.plugin.settings.dailyGoal = n;
+		this.plugin.syncTodayHistory();
+		this.plugin.markDirty({ refreshSidebar: true });
+		await this.plugin.flushSave();
+		this.plugin.refreshUi();
+	}
+
+	private async applyHeatmapColor(hex: string) {
+		this.plugin.settings.heatmapColor = hex;
+		this.plugin.markDirty({ refreshSidebar: true });
+		await this.plugin.flushSave();
+		this.plugin.refreshUi();
+		this.display();
+	}
+
+	private async persistGoalMetCue(value: boolean) {
+		this.plugin.settings.showGoalMetCue = value;
+		this.plugin.markDirty({ refreshSidebar: true });
+		await this.plugin.flushSave();
+		this.plugin.refreshUi();
+	}
+
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
@@ -1157,10 +1271,18 @@ class WordGoalSettingTab extends PluginSettingTab {
 			.addText((t) => t
 				.setPlaceholder("https://hook.example.com/...")
 				.setValue(this.plugin.settings.webhookUrl)
-				.onChange(async (v) => {
-					this.plugin.settings.webhookUrl = v;
-					this.plugin.markDirty({ refreshSidebar: false });
-					await this.plugin.flushSave();
+				.onChange((v) => {
+					void this.persistWebhookUrl(v).catch((err) => console.error("Failed to save webhook URL:", err));
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Test webhook")
+			.setDesc("Send a test payload to confirm your webhook setup")
+			.addButton((button) => button
+				.setButtonText("Send test webhook")
+				.onClick(() => {
+					void this.runTestWebhook(button).catch((err) => console.error("Failed to send test webhook:", err));
 				})
 			);
 
@@ -1170,15 +1292,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 			.addText((t) => t
 				.setPlaceholder("500")
 				.setValue(String(this.plugin.settings.dailyGoal))
-				.onChange(async (v) => {
-					const n = parseInt(v, 10);
-					if (!isNaN(n) && n > 0) {
-						this.plugin.settings.dailyGoal = n;
-						this.plugin.syncTodayHistory();
-						this.plugin.markDirty({ refreshSidebar: true });
-						await this.plugin.flushSave();
-						this.plugin.refreshUi();
-					}
+				.onChange((v) => {
+					void this.persistDailyWordGoal(v).catch((err) => console.error("Failed to save daily word goal:", err));
 				})
 			);
 
@@ -1199,13 +1314,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 				swatch.addClass("wg-swatch-active");
 			}
 
-			swatch.addEventListener("click", async () => {
-				this.plugin.settings.heatmapColor = preset.hex;
-				this.plugin.markDirty({ refreshSidebar: true });
-				await this.plugin.flushSave();
-				this.plugin.refreshUi();
-				// Re-render settings to update active state
-				this.display();
+			swatch.addEventListener("click", () => {
+				void this.applyHeatmapColor(preset.hex).catch((err) => console.error("Failed to save heatmap colour:", err));
 			});
 		}
 
@@ -1214,11 +1324,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 			.setDesc("Show the small marker on days where the daily word goal was met")
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.showGoalMetCue)
-				.onChange(async (value) => {
-					this.plugin.settings.showGoalMetCue = value;
-					this.plugin.markDirty({ refreshSidebar: true });
-					await this.plugin.flushSave();
-					this.plugin.refreshUi();
+				.onChange((value) => {
+					void this.persistGoalMetCue(value).catch((err) => console.error("Failed to save goal-met cue setting:", err));
 				})
 			);
 	}

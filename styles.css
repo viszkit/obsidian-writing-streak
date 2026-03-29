@@ -101,6 +101,10 @@
   text-align: center;
   margin-bottom: 14px;
   flex-shrink: 0;
+  padding: 10px 10px 12px;
+  border-radius: 12px;
+  background: var(--background-secondary);
+  transition: box-shadow 0.25s ease, background-color 0.25s ease, transform 0.25s ease;
 }
 
 .wg-sb-today-num {
@@ -113,6 +117,53 @@
 .wg-sb-today-goal {
   font-size: 14px;
   color: var(--text-muted);
+  transition: opacity 0.18s ease;
+}
+
+.wg-sb-today-goal-overflow {
+  opacity: 0.72;
+}
+
+.wg-sb-progress {
+  --wg-progress-fill-ratio: 0;
+  --wg-progress-goal-ratio: 1;
+  width: 100%;
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--wg-progress-color-soft, var(--background-modifier-hover));
+  position: relative;
+}
+
+.wg-sb-progress-fill {
+  height: 100%;
+  width: calc(var(--wg-progress-fill-ratio) * 100%);
+  border-radius: inherit;
+  background: var(--wg-progress-color, var(--interactive-accent));
+  transition: width 0.18s ease, background-color 0.18s ease;
+}
+
+.wg-sb-progress-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--wg-progress-goal-ratio) * 100%);
+  width: 2px;
+  transform: translateX(-1px);
+  border-radius: 999px;
+  background: var(--background-primary);
+  opacity: 0;
+  transition: left 0.18s ease, opacity 0.18s ease;
+}
+
+.wg-sb-progress-overgoal .wg-sb-progress-divider {
+  opacity: 0.95;
+}
+
+.wg-sb-today-celebrate {
+  animation: wg-goal-celebrate 2.2s ease-out;
+  box-shadow: 0 0 0 1px var(--wg-progress-color-soft, transparent), 0 0 22px var(--wg-progress-color-glow, transparent);
 }
 
 /* ── Vertical heatmap ─────────────────────────────────────────────────────── */
@@ -238,8 +289,23 @@
 .wg-day-today {
   box-shadow:
     inset 0 0 0 1px var(--background-primary),
-    0 0 0 2px var(--interactive-accent, var(--text-accent));
+    0 0 0 2px var(--wg-today-accent, var(--interactive-accent, var(--text-accent)));
   z-index: 1;
+}
+
+@keyframes wg-goal-celebrate {
+  0% {
+    transform: scale(0.985);
+    box-shadow: 0 0 0 0 var(--wg-progress-color-glow, transparent);
+  }
+  22% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px var(--wg-progress-color-soft, transparent), 0 0 26px var(--wg-progress-color-glow, transparent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px var(--wg-progress-color-soft, transparent), 0 0 0 transparent;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
