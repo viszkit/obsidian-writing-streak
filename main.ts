@@ -35,7 +35,8 @@ const COLOR_PRESETS: { label: string; hex: string }[] = [
 
 interface FileSnapshot {
 	initial: number;
-	current: number;
+	peak: number;
+	current?: number;
 }
 
 interface DailyRecord {
@@ -286,6 +287,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private statusBarEl: HTMLElement | null = null;
 	private visibilityHandler: () => void;
 	private webhookSendInFlightDate: string | null = null;
+	private pluginDataMtime: number | null = null;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -327,6 +329,20 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			})
 		);
 
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (!(file instanceof TFile) || file.extension !== "md") return;
+				void this.handleVaultModify(file);
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				if (!(file instanceof TFile)) return;
+				this.handleFileRename(file, oldPath);
+			})
+		);
+
 		// Status bar
 		this.statusBarEl = this.addStatusBarItem();
 		this.statusBarEl.addClass("wg-statusbar");
@@ -337,13 +353,17 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.visibilityHandler = () => {
 			if (document.visibilityState === "hidden") {
 				this.syncTodayHistory();
-				this.savePluginData();
+				void this.savePluginData();
+				return;
 			}
+			void this.reloadAndMergeSyncedPluginData();
+			this.refreshUi();
 		};
 		document.addEventListener("visibilitychange", this.visibilityHandler);
 
 		this.app.workspace.onLayoutReady(() => {
 			this.initializeOpenViewSnapshots();
+			void this.reloadAndMergeSyncedPluginData();
 			this.activateSidebar();
 		});
 	}
@@ -359,7 +379,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	todaysTotal(): number {
 		let sum = 0;
 		for (const snap of Object.values(this.data.todaysWordCount)) {
-			sum += Math.max(snap.current - snap.initial, 0);
+			sum += Math.max(snap.peak - snap.initial, 0);
 		}
 		return sum;
 	}
@@ -417,16 +437,23 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		return null;
 	}
 
-	private ensureFileSnapshot(file: TFile, content: string) {
+	private ensureCurrentDay() {
 		if (this.data.todaysDate !== todayKey()) {
 			this.handleDayRollover();
 		}
+	}
 
+	private observeFileWords(file: TFile, words: number) {
+		this.ensureCurrentDay();
 		const path = file.path;
-		if (!this.data.todaysWordCount[path]) {
-			const words = countWords(content);
-			this.data.todaysWordCount[path] = { initial: words, current: words };
+		const existing = this.data.todaysWordCount[path];
+		if (!existing) {
+			this.data.todaysWordCount[path] = { initial: words, peak: words };
+			return;
 		}
+
+		existing.peak = Math.max(existing.peak, words);
+		existing.current = words;
 	}
 
 	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
@@ -435,7 +462,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (!(view instanceof MarkdownView)) return;
 		const file = view.file;
 		if (!file) return;
-		this.ensureFileSnapshot(file, view.editor.getValue());
+		this.observeFileWords(file, countWords(view.editor.getValue()));
 	}
 
 	private initializeOpenViewSnapshots() {
@@ -447,20 +474,44 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	// ── Word tracking (fast, synchronous, runs on every keystroke) ───────
 
 	private trackEditorChange(editor: Editor) {
-		if (this.data.todaysDate !== todayKey()) {
-			this.handleDayRollover();
-		}
+		this.ensureCurrentDay();
 
 		const view = this.resolveMarkdownViewForEditor(editor);
 		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
 
 		const content = editor.getValue();
-		const currentWords = countWords(content);
-		this.ensureFileSnapshot(file, content);
-		this.data.todaysWordCount[file.path].current = currentWords;
+		this.observeFileWords(file, countWords(content));
 
 		// Check goal
+		this.maybeCelebrateGoal();
+	}
+
+	private async handleVaultModify(file: TFile) {
+		await this.reloadAndMergeSyncedPluginData();
+		this.observeFileWords(file, countWords(await this.app.vault.cachedRead(file)));
+		this.syncTodayHistory();
+		await this.queueSave();
+		this.refreshUi();
+		this.maybeCelebrateGoal();
+	}
+
+	private handleFileRename(file: TFile, oldPath: string) {
+		this.ensureCurrentDay();
+		const existing = this.data.todaysWordCount[oldPath];
+		if (!existing || oldPath === file.path) return;
+
+		const renamed = this.data.todaysWordCount[file.path];
+		this.data.todaysWordCount[file.path] = renamed
+			? this.mergeSnapshot(existing, renamed)
+			: existing;
+		delete this.data.todaysWordCount[oldPath];
+		this.syncTodayHistory();
+		void this.queueSave();
+		this.refreshUi();
+	}
+
+	private maybeCelebrateGoal() {
 		if (
 			this.todaysTotal() >= this.settings.dailyGoal &&
 			this.data.lastWebhookSentDate !== this.data.todaysDate &&
@@ -468,7 +519,75 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		) {
 			this.webhookSendInFlightDate = this.data.todaysDate;
 			new Notice(`🎉 You hit ${this.settings.dailyGoal} words today!`);
-			this.fireWebhook();
+			void this.fireWebhook();
+		}
+	}
+
+	private refreshUi() {
+		this.updateStatusBar();
+		this.refreshSidebar();
+	}
+
+	private getPluginDataPath(): string {
+		return `${this.app.vault.configDir}/plugins/${this.manifest.id}/data.json`;
+	}
+
+	private mergeSnapshot(a: FileSnapshot, b: FileSnapshot): FileSnapshot {
+		return {
+			initial: Math.min(a.initial, b.initial),
+			peak: Math.max(a.peak, b.peak),
+			current: Math.max(a.current ?? a.peak, b.current ?? b.peak),
+		};
+	}
+
+	private mergeHistoryEntry(local: DailyRecord | undefined, incoming: DailyRecord | undefined): DailyRecord | undefined {
+		if (!local) return incoming ? { ...incoming } : undefined;
+		if (!incoming) return local;
+		return {
+			totalWords: Math.max(local.totalWords, incoming.totalWords),
+			goalMet: local.goalMet === true || incoming.goalMet === true,
+		};
+	}
+
+	private mergePluginData(incoming: PluginData) {
+		const today = todayKey();
+		this.ensureCurrentDay();
+
+		for (const [dateKey, incomingRecord] of Object.entries(incoming.history ?? {})) {
+			const merged = this.mergeHistoryEntry(this.data.history[dateKey], incomingRecord);
+			if (merged) this.data.history[dateKey] = merged;
+		}
+
+		if (incoming.todaysDate === today) {
+			for (const [path, incomingSnapshot] of Object.entries(incoming.todaysWordCount ?? {})) {
+				const localSnapshot = this.data.todaysWordCount[path];
+				this.data.todaysWordCount[path] = localSnapshot
+					? this.mergeSnapshot(localSnapshot, incomingSnapshot)
+					: { ...incomingSnapshot };
+			}
+		}
+
+		if ((incoming.lastWebhookSentDate ?? "") > (this.data.lastWebhookSentDate ?? "")) {
+			this.data.lastWebhookSentDate = incoming.lastWebhookSentDate;
+		}
+
+		this.syncTodayHistory();
+	}
+
+	private async reloadAndMergeSyncedPluginData() {
+		const path = this.getPluginDataPath();
+		const stat = await this.app.vault.adapter.stat(path);
+		if (!stat) return;
+		if (this.pluginDataMtime !== null && stat.mtime <= this.pluginDataMtime) return;
+
+		try {
+			const raw = await this.app.vault.adapter.read(path);
+			const parsed = JSON.parse(raw);
+			const incoming = this.normalizeLoadedData(parsed);
+			this.mergePluginData(incoming);
+			this.pluginDataMtime = stat.mtime;
+		} catch (err) {
+			console.error("Failed to reload synced plugin data:", err);
 		}
 	}
 
@@ -563,17 +682,42 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 	async loadPluginData() {
 		const loaded = await this.loadData();
-		this.data = Object.assign({}, DEFAULT_DATA, loaded);
-		this.data.settings = Object.assign({}, DEFAULT_SETTINGS, this.data.settings);
-		if (!this.data.history) this.data.history = {};
-		if (!this.data.todaysWordCount) this.data.todaysWordCount = {};
-		if (!this.data.todaysDate) this.data.todaysDate = "";
-		if (!this.data.lastWebhookSentDate) this.data.lastWebhookSentDate = "";
-		for (const record of Object.values(this.data.history)) {
+		this.data = this.normalizeLoadedData(loaded);
+		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
+		this.pluginDataMtime = stat?.mtime ?? null;
+		this.mergePluginData(this.data);
+	}
+
+	private normalizeLoadedData(loaded: Partial<PluginData> | null | undefined): PluginData {
+		const data = Object.assign({}, DEFAULT_DATA, loaded);
+		data.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
+		data.history = data.history ?? {};
+		data.todaysWordCount = data.todaysWordCount ?? {};
+		data.todaysDate = data.todaysDate ?? "";
+		data.lastWebhookSentDate = data.lastWebhookSentDate ?? "";
+
+		for (const record of Object.values(data.history)) {
 			if (record.totalWords > 0 && record.goalMet === undefined) {
-				record.goalMet = record.totalWords >= this.data.settings.dailyGoal;
+				record.goalMet = record.totalWords >= data.settings.dailyGoal;
 			}
 		}
+
+		for (const [path, snapshot] of Object.entries(data.todaysWordCount)) {
+			const migrated = snapshot as FileSnapshot & { current?: number; peak?: number };
+			const initial = typeof migrated.initial === "number" ? migrated.initial : 0;
+			const peakCandidate = typeof migrated.peak === "number"
+				? migrated.peak
+				: typeof migrated.current === "number"
+					? migrated.current
+					: initial;
+			data.todaysWordCount[path] = {
+				initial,
+				peak: Math.max(initial, peakCandidate),
+				current: typeof migrated.current === "number" ? migrated.current : peakCandidate,
+			};
+		}
+
+		return data;
 	}
 
 	async savePluginData() { await this.saveData(this.data); }
