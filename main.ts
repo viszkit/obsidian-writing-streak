@@ -98,6 +98,21 @@ function isToday(date: Date): boolean {
 
 function countWords(text: string): number { return (text.match(/\S+/g) || []).length; }
 
+function runtimeLocale(): string {
+	if (typeof window !== "undefined" && typeof window.navigator?.language === "string" && window.navigator.language.length > 0) {
+		return window.navigator.language;
+	}
+	return Intl.DateTimeFormat().resolvedOptions().locale;
+}
+
+function formatLocalizedDate(date: Date, options: Intl.DateTimeFormatOptions): string {
+	return date.toLocaleDateString(runtimeLocale(), options);
+}
+
+function formatLocalizedNumber(value: number): string {
+	return value.toLocaleString(runtimeLocale());
+}
+
 function hexToRgba(hex: string, alpha: number): string {
 	const r = parseInt(hex.slice(1, 3), 16);
 	const g = parseInt(hex.slice(3, 5), 16);
@@ -294,11 +309,25 @@ function buildYearGrid(year: number): { dayIndex: number; date: Date | null }[][
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 export default class WordGoalWebhookPlugin extends Plugin {
-	data: PluginData;
+	data: PluginData = {
+		settings: { ...DEFAULT_SETTINGS },
+		history: {},
+		todaysWordCount: {},
+		todaysDate: "",
+		lastWebhookSentDate: "",
+	};
 	private statusBarEl: HTMLElement | null = null;
-	private visibilityHandler: () => void;
+	private visibilityHandler: () => void = () => {};
 	private webhookSendInFlightDate: string | null = null;
 	private pluginDataMtime: number | null = null;
+	private saveTimer: number | null = null;
+	private dirty = false;
+	private pendingSidebarRefresh = false;
+	private saveInFlight: Promise<void> | null = null;
+	private filePathByEditor = new Map<Editor, string>();
+	private editorByFilePath = new Map<string, Editor>();
+	private lastObservedWordsByPath = new Map<string, number>();
+	private activeMarkdownEditor: Editor | null = null;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -318,23 +347,16 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			callback: () => this.importDailyStats(),
 		});
 
-		// Editor change: fast in-memory update on every change, debounced save
-		const debouncedPersist = debounce(() => {
-			this.syncTodayHistory();
-			this.queueSave();
-			this.refreshSidebar();
-		}, 800, true);
-
 		this.registerEvent(
 			this.app.workspace.on("editor-change", (editor) => {
 				this.trackEditorChange(editor);
 				this.updateStatusBar();
-				debouncedPersist();
 			})
 		);
 
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
+				this.refreshMarkdownEditorCache();
 				this.initializeSnapshotFromLeaf(leaf);
 				this.updateStatusBar();
 			})
@@ -364,25 +386,26 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.visibilityHandler = () => {
 			if (document.visibilityState === "hidden") {
 				this.syncTodayHistory();
-				void this.savePluginData();
+				this.markDirty({ refreshSidebar: true });
+				void this.flushSave();
 				return;
 			}
-			void this.reloadAndMergeSyncedPluginData();
-			this.refreshUi();
+			void this.reloadSyncedDataAndRefreshUi();
 		};
 		document.addEventListener("visibilitychange", this.visibilityHandler);
 
 		this.app.workspace.onLayoutReady(() => {
+			this.refreshMarkdownEditorCache();
 			this.initializeOpenViewSnapshots();
-			void this.reloadAndMergeSyncedPluginData();
-			this.activateSidebar();
+			void this.handleLayoutReady();
 		});
 	}
 
 	async onunload() {
 		document.removeEventListener("visibilitychange", this.visibilityHandler);
 		this.finalizeToday();
-		await this.savePluginData();
+		this.markDirty({ refreshSidebar: false });
+		await this.flushSave();
 	}
 
 	// ── Today's total — computed from persisted snapshots ─────────────────
@@ -420,7 +443,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
-	private syncTodayHistory() {
+	syncTodayHistory() {
 		this.syncHistoryEntry(todayKey(), this.todaysTotal());
 	}
 
@@ -438,10 +461,12 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	private resolveMarkdownViewForEditor(editor: Editor): MarkdownView | null {
+		const path = this.filePathByEditor.get(editor);
+		if (!path) return null;
 		const leaves = this.app.workspace.getLeavesOfType("markdown");
 		for (const leaf of leaves) {
 			const view = leaf.view;
-			if (view instanceof MarkdownView && view.editor === editor) {
+			if (view instanceof MarkdownView && view.file?.path === path && view.editor === editor) {
 				return view;
 			}
 		}
@@ -457,6 +482,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private observeFileWords(file: TFile, words: number) {
 		this.ensureCurrentDay();
 		const path = file.path;
+		this.lastObservedWordsByPath.set(path, words);
 		const existing = this.data.todaysWordCount[path];
 		if (!existing) {
 			this.data.todaysWordCount[path] = { initial: words, peak: words };
@@ -470,9 +496,13 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
 		if (!leaf) return;
 		const view = leaf.view;
-		if (!(view instanceof MarkdownView)) return;
+		if (!(view instanceof MarkdownView)) {
+			this.activeMarkdownEditor = null;
+			return;
+		}
 		const file = view.file;
 		if (!file) return;
+		this.activeMarkdownEditor = view.editor;
 		this.observeFileWords(file, countWords(view.editor.getValue()));
 	}
 
@@ -482,17 +512,41 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
+	private refreshMarkdownEditorCache() {
+		this.filePathByEditor.clear();
+		this.editorByFilePath.clear();
+
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView) || !view.file) continue;
+			this.filePathByEditor.set(view.editor, view.file.path);
+			this.editorByFilePath.set(view.file.path, view.editor);
+		}
+	}
+
+	private async handleLayoutReady() {
+		await this.reloadSyncedDataAndRefreshUi();
+		await this.activateSidebar();
+	}
+
 	// ── Word tracking (fast, synchronous, runs on every keystroke) ───────
 
 	private trackEditorChange(editor: Editor) {
 		this.ensureCurrentDay();
 
+		if (this.activeMarkdownEditor !== editor && !this.filePathByEditor.has(editor)) return;
+
 		const view = this.resolveMarkdownViewForEditor(editor);
 		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
 
-		const content = editor.getValue();
-		this.observeFileWords(file, countWords(content));
+		const words = countWords(editor.getValue());
+		if (this.lastObservedWordsByPath.get(file.path) === words) return;
+
+		this.observeFileWords(file, words);
+		this.syncTodayHistory();
+		this.markDirty({ refreshSidebar: true });
+		this.scheduleSave();
 
 		// Check goal
 		this.maybeCelebrateGoal();
@@ -500,10 +554,20 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 	private async handleVaultModify(file: TFile) {
 		await this.reloadAndMergeSyncedPluginData();
-		this.observeFileWords(file, countWords(await this.app.vault.cachedRead(file)));
+		const liveEditor = this.editorByFilePath.get(file.path);
+		if (liveEditor) {
+			const liveWords = countWords(liveEditor.getValue());
+			if (this.lastObservedWordsByPath.get(file.path) === liveWords) return;
+			this.observeFileWords(file, liveWords);
+		} else {
+			const words = countWords(await this.app.vault.cachedRead(file));
+			if (this.lastObservedWordsByPath.get(file.path) === words) return;
+			this.observeFileWords(file, words);
+		}
 		this.syncTodayHistory();
-		await this.queueSave();
-		this.refreshUi();
+		this.markDirty({ refreshSidebar: true });
+		this.scheduleSave();
+		this.updateStatusBar();
 		this.maybeCelebrateGoal();
 	}
 
@@ -517,8 +581,20 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			? this.mergeSnapshot(existing, renamed)
 			: existing;
 		delete this.data.todaysWordCount[oldPath];
+		const previousWords = this.lastObservedWordsByPath.get(oldPath);
+		if (previousWords !== undefined) {
+			this.lastObservedWordsByPath.delete(oldPath);
+			this.lastObservedWordsByPath.set(file.path, previousWords);
+		}
+		const editor = this.editorByFilePath.get(oldPath);
+		if (editor) {
+			this.editorByFilePath.delete(oldPath);
+			this.editorByFilePath.set(file.path, editor);
+			this.filePathByEditor.set(editor, file.path);
+		}
 		this.syncTodayHistory();
-		void this.queueSave();
+		this.markDirty({ refreshSidebar: true });
+		this.scheduleSave();
 		this.refreshUi();
 	}
 
@@ -534,7 +610,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
-	private refreshUi() {
+	refreshUi() {
 		this.updateStatusBar();
 		this.refreshSidebar();
 	}
@@ -602,11 +678,58 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
+	private async reloadSyncedDataAndRefreshUi() {
+		await this.reloadAndMergeSyncedPluginData();
+		this.refreshUi();
+	}
+
 	// ── Debounced save (avoid hammering disk on every keystroke) ──────────
 
-	private async queueSave() {
-		// Save immediately — Obsidian's saveData is fast and handles batching
-		await this.savePluginData();
+	markDirty(options?: { refreshSidebar?: boolean }) {
+		this.dirty = true;
+		if (options?.refreshSidebar) {
+			this.pendingSidebarRefresh = true;
+		}
+	}
+
+	private scheduleSave() {
+		if (this.saveTimer !== null) {
+			window.clearTimeout(this.saveTimer);
+		}
+		this.saveTimer = window.setTimeout(() => {
+			void this.flushSave();
+		}, 800);
+	}
+
+	async flushSave() {
+		if (this.saveTimer !== null) {
+			window.clearTimeout(this.saveTimer);
+			this.saveTimer = null;
+		}
+
+		if (this.saveInFlight) {
+			await this.saveInFlight;
+			return;
+		}
+		if (!this.dirty) return;
+
+		this.saveInFlight = this.performSaveLoop();
+		try {
+			await this.saveInFlight;
+		} finally {
+			this.saveInFlight = null;
+		}
+	}
+
+	private async performSaveLoop() {
+		while (this.dirty) {
+			this.dirty = false;
+			await this.savePluginData();
+		}
+		if (this.pendingSidebarRefresh) {
+			this.pendingSidebarRefresh = false;
+			this.refreshSidebar();
+		}
 	}
 
 	// ── Import from Daily Stats plugin ───────────────────────────────────
@@ -645,8 +768,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 				}
 			}
 
-			await this.savePluginData();
-			this.refreshSidebar();
+			this.markDirty({ refreshSidebar: true });
+			await this.flushSave();
 			new Notice(`Imported ${imported} days from Daily Stats.`);
 		} catch (err) {
 			console.error("Import error:", err);
@@ -731,7 +854,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		return data;
 	}
 
-	async savePluginData() { await this.saveData(this.data); }
+	async savePluginData() {
+		await this.saveData(this.data);
+		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
+		this.pluginDataMtime = stat?.mtime ?? this.pluginDataMtime;
+	}
 
 	// ── Webhook ───────────────────────────────────────────────────────────
 
@@ -756,7 +883,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 				}),
 			});
 			this.data.lastWebhookSentDate = this.data.todaysDate;
-			await this.savePluginData();
+			this.markDirty({ refreshSidebar: true });
+			await this.flushSave();
 			new Notice("Word Goal: webhook sent ✓");
 		} catch (err) {
 			console.error("Word Goal webhook error:", err);
@@ -837,7 +965,7 @@ class SidebarHeatmapView extends ItemView {
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
 				if (isToday(slot.date)) cell.addClass("wg-day-today");
 
-				const dateStr = slot.date.toLocaleDateString("de-DE", { day: "numeric", month: "short" });
+				const dateStr = formatLocalizedDate(slot.date, { day: "numeric", month: "short" });
 				cell.dataset.tooltip = `${dateStr}: ${words}`;
 				cell.addClass("wg-tooltip");
 			}
@@ -919,9 +1047,9 @@ class DetailModal extends Modal {
 		const stats = yearStats(history, year);
 		const statsRow = contentEl.createDiv({ cls: "wg-dt-stats" });
 
-		this.statCard(statsRow, stats.total.toLocaleString("de-DE"), "total words", color);
+		this.statCard(statsRow, formatLocalizedNumber(stats.total), "total words", color);
 		this.statCard(statsRow, `${stats.days}`, "days written", color);
-		this.statCard(statsRow, stats.avg.toLocaleString("de-DE"), "daily average", color);
+		this.statCard(statsRow, formatLocalizedNumber(stats.avg), "daily average", color);
 
 		// ── Horizontal heatmap ──
 		const max = yearMax(history, year);
@@ -959,7 +1087,7 @@ class DetailModal extends Modal {
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
 				if (isToday(slot.date)) cell.addClass("wg-day-today");
 
-				const dateStr = slot.date.toLocaleDateString("de-DE", {
+				const dateStr = formatLocalizedDate(slot.date, {
 					weekday: "short", day: "numeric", month: "short", year: "numeric",
 				});
 				cell.dataset.tooltip = `${dateStr}: ${words} words`;
@@ -991,7 +1119,7 @@ class DetailModal extends Modal {
 			const bar = barWrap.createDiv({ cls: "wg-dt-bar" });
 			bar.style.width = `${(sums[i] / maxMonth) * 100}%`;
 			bar.style.backgroundColor = hexToRgba(color, 0.7);
-			row.createSpan({ text: sums[i].toLocaleString("de-DE"), cls: "wg-dt-month-val" });
+			row.createSpan({ text: formatLocalizedNumber(sums[i]), cls: "wg-dt-month-val" });
 		}
 	}
 
@@ -1029,7 +1157,11 @@ class WordGoalSettingTab extends PluginSettingTab {
 			.addText((t) => t
 				.setPlaceholder("https://hook.example.com/...")
 				.setValue(this.plugin.settings.webhookUrl)
-				.onChange(async (v) => { this.plugin.settings.webhookUrl = v; await this.plugin.savePluginData(); })
+				.onChange(async (v) => {
+					this.plugin.settings.webhookUrl = v;
+					this.plugin.markDirty({ refreshSidebar: false });
+					await this.plugin.flushSave();
+				})
 			);
 
 		new Setting(containerEl)
@@ -1040,7 +1172,13 @@ class WordGoalSettingTab extends PluginSettingTab {
 				.setValue(String(this.plugin.settings.dailyGoal))
 				.onChange(async (v) => {
 					const n = parseInt(v, 10);
-					if (!isNaN(n) && n > 0) { this.plugin.settings.dailyGoal = n; await this.plugin.savePluginData(); }
+					if (!isNaN(n) && n > 0) {
+						this.plugin.settings.dailyGoal = n;
+						this.plugin.syncTodayHistory();
+						this.plugin.markDirty({ refreshSidebar: true });
+						await this.plugin.flushSave();
+						this.plugin.refreshUi();
+					}
 				})
 			);
 
@@ -1063,8 +1201,9 @@ class WordGoalSettingTab extends PluginSettingTab {
 
 			swatch.addEventListener("click", async () => {
 				this.plugin.settings.heatmapColor = preset.hex;
-				await this.plugin.savePluginData();
-				this.plugin.refreshSidebar();
+				this.plugin.markDirty({ refreshSidebar: true });
+				await this.plugin.flushSave();
+				this.plugin.refreshUi();
 				// Re-render settings to update active state
 				this.display();
 			});
@@ -1077,8 +1216,9 @@ class WordGoalSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.showGoalMetCue)
 				.onChange(async (value) => {
 					this.plugin.settings.showGoalMetCue = value;
-					await this.plugin.savePluginData();
-					this.plugin.refreshSidebar();
+					this.plugin.markDirty({ refreshSidebar: true });
+					await this.plugin.flushSave();
+					this.plugin.refreshUi();
 				})
 			);
 	}
