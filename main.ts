@@ -333,22 +333,22 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 		this.registerView(VIEW_TYPE_HEATMAP, (leaf) => new SidebarHeatmapView(leaf, this));
 
-		this.addCommand({
-			id: "open-writing-heatmap",
-			name: "Open writing heatmap",
-			callback: () => {
-				void this.activateSidebar().catch((err) => console.error("Failed to open writing heatmap:", err));
-			},
-		});
-		this.addCommand({ id: "open-writing-stats", name: "Open writing stats", callback: () => new DetailModal(this.app, this).open() });
-		this.addCommand({ id: "show-daily-word-count", name: "Show today's word count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} words`) });
-		this.addCommand({
-			id: "import-daily-stats",
-			name: "Import history from Daily Stats plugin",
-			callback: () => {
-				void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
-			},
-		});
+			this.addCommand({
+				id: "open-writing-heatmap",
+				name: "Open Writing Heatmap",
+				callback: () => {
+					void this.activateSidebar().catch((err) => console.error("Failed to open writing heatmap:", err));
+				},
+			});
+			this.addCommand({ id: "open-writing-stats", name: "Open Writing Stats", callback: () => new DetailModal(this.app, this).open() });
+			this.addCommand({ id: "show-daily-word-count", name: "Show Today's Word Count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} Words`) });
+				this.addCommand({
+					id: "import-daily-stats",
+					name: "Import History From Daily Stats Plugin",
+					callback: () => {
+						void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
+					},
+				});
 
 		this.registerEvent(
 			this.app.workspace.on("editor-change", (editor) => {
@@ -613,7 +613,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		) {
 			this.webhookSendInFlightDate = this.data.todaysDate;
 			this.triggerGoalCelebration();
-			new Notice(`🎉 You hit ${this.settings.dailyGoal} words today!`);
+			new Notice(`🎉 You Hit ${this.settings.dailyGoal} Words Today!`);
 			void this.fireWebhook();
 		}
 	}
@@ -761,12 +761,12 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private async importDailyStats() {
 		try {
 			const adapter = this.app.vault.adapter;
-			const path = `${this.app.vault.configDir}/plugins/obsidian-daily-stats/data.json`;
-			const exists = await adapter.exists(path);
-			if (!exists) {
-				new Notice("Daily Stats data.json not found.");
-				return;
-			}
+				const path = `${this.app.vault.configDir}/plugins/obsidian-daily-stats/data.json`;
+				const exists = await adapter.exists(path);
+				if (!exists) {
+						new Notice("Daily Stats Plugin data.json Not Found.");
+					return;
+				}
 			const raw = await adapter.read(path);
 			const dsData = JSON.parse(raw);
 			const dayCounts: Record<string, number> = dsData?.dayCounts ?? {};
@@ -794,10 +794,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 			this.markDirty({ refreshSidebar: true });
 			await this.flushSave();
-			new Notice(`Imported ${imported} days from Daily Stats.`);
+			new Notice(`Imported ${imported} Days From Daily Stats.`);
 		} catch (err) {
 			console.error("Import error:", err);
-			new Notice("Import failed.");
+			new Notice("Import Failed.");
 		}
 	}
 
@@ -822,11 +822,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 	async activateSidebar() {
 		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_HEATMAP);
-		if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+		if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
 		const leaf = this.app.workspace.getRightLeaf(false);
 		if (leaf) {
 			await leaf.setViewState({ type: VIEW_TYPE_HEATMAP, active: true });
-			this.app.workspace.revealLeaf(leaf);
+			void this.app.workspace.revealLeaf(leaf);
 		}
 	}
 
@@ -905,7 +905,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private async sendWebhook({ test }: { test: boolean }): Promise<boolean> {
 		const url = this.settings.webhookUrl.trim();
 		if (!url) {
-			new Notice(test ? "Word goal: no webhook URL configured for test." : "Word goal: no webhook URL configured.");
+			new Notice(test ? "Word Goal: No Webhook URL Configured for Test." : "Word Goal: No Webhook URL Configured.");
 			return false;
 		}
 		try {
@@ -922,11 +922,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 					test,
 				}),
 			});
-			new Notice(test ? "Word goal: test webhook sent ✓" : "Word goal: webhook sent ✓");
+			new Notice(test ? "Word Goal: Test Webhook Sent ✓" : "Word Goal: Webhook Sent ✓");
 			return true;
 		} catch (err) {
 			console.error("Word Goal webhook error:", err);
-			new Notice(test ? "Word goal: test webhook failed." : "Word goal: webhook failed.");
+			new Notice(test ? "Word Goal: Test Webhook Failed." : "Word Goal: Webhook Failed.");
 			return false;
 		}
 	}
@@ -946,7 +946,7 @@ class SidebarHeatmapView extends ItemView {
 	}
 
 	getViewType() { return VIEW_TYPE_HEATMAP; }
-	getDisplayText() { return "Writing heatmap"; }
+		getDisplayText() { return "Writing Heatmap"; }
 	getIcon() { return "flame"; }
 	onOpen(): Promise<void> {
 		this.shouldScrollToToday = true;
@@ -965,10 +965,10 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Top bar ──
 		const topBar = root.createDiv({ cls: "wg-sb-topbar" });
-		topBar.createDiv({ text: "Writing heatmap", cls: "wg-sb-title" });
+		topBar.createDiv({ text: "Writing Heatmap", cls: "wg-sb-title" });
 		const expandBtn = topBar.createEl("button", { cls: "wg-sb-expand-btn" });
 		setIcon(expandBtn, "maximize-2");
-		expandBtn.setAttribute("aria-label", "Open detailed stats");
+		expandBtn.setAttribute("aria-label", "Open Detailed Stats");
 		expandBtn.addEventListener("click", () => new DetailModal(this.app, this.plugin).open());
 
 		// ── Today counter (live from in-memory snapshots) ──
@@ -996,11 +996,11 @@ class SidebarHeatmapView extends ItemView {
 		progressBar.style.setProperty("--wg-progress-fill-ratio", String(fillRatio));
 		progressBar.style.setProperty("--wg-progress-goal-ratio", String(goalRatio));
 		progressBar.setAttribute("role", "progressbar");
-		progressBar.setAttribute("aria-label", "Today's writing progress");
+		progressBar.setAttribute("aria-label", "Today's Writing Progress");
 		progressBar.setAttribute("aria-valuemin", "0");
 		progressBar.setAttribute("aria-valuemax", String(Math.max(todayWords, goal)));
 		progressBar.setAttribute("aria-valuenow", String(todayWords));
-		progressBar.setAttribute("aria-valuetext", `${formatLocalizedNumber(todayWords)} words written, ${formatLocalizedNumber(goal)} word goal`);
+		progressBar.setAttribute("aria-valuetext", `${formatLocalizedNumber(todayWords)} Words Written, ${formatLocalizedNumber(goal)} Word Goal`);
 		const progressFill = progressBar.createDiv({ cls: "wg-sb-progress-fill" });
 		progressFill.setAttribute("aria-hidden", "true");
 		const progressDivider = progressBar.createDiv({ cls: "wg-sb-progress-divider" });
@@ -1054,8 +1054,8 @@ class SidebarHeatmapView extends ItemView {
 		const writing = calcStreaks(history, isWritingDay);
 		const goalMet = calcStreaks(history, isGoalMetDay);
 		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
-		this.streakCard(streakRow, "✍", "Writing streak", writing.current, writing.longest, color);
-		this.streakCard(streakRow, "🎯", "Goal streak", goalMet.current, goalMet.longest, color);
+			this.streakCard(streakRow, "✍", "Writing Streak", writing.current, writing.longest, color);
+			this.streakCard(streakRow, "🎯", "Goal Streak", goalMet.current, goalMet.longest, color);
 	}
 
 	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number, color: string) {
@@ -1069,8 +1069,8 @@ class SidebarHeatmapView extends ItemView {
 		const header = card.createDiv({ cls: "wg-sb-streak-card-header" });
 		header.createSpan({ text: icon, cls: "wg-sb-streak-card-icon" });
 		header.createSpan({ text: title, cls: "wg-sb-streak-card-title" });
-		card.createDiv({ text: `${current} days`, cls: "wg-sb-streak-card-current" });
-		card.createDiv({ text: `Best: ${longest} days`, cls: "wg-sb-streak-card-best" });
+		card.createDiv({ text: `${current} Days`, cls: "wg-sb-streak-card-current" });
+		card.createDiv({ text: `Best: ${longest} Days`, cls: "wg-sb-streak-card-best" });
 	}
 }
 
@@ -1117,9 +1117,9 @@ class DetailModal extends Modal {
 		const stats = yearStats(history, year);
 		const statsRow = contentEl.createDiv({ cls: "wg-dt-stats" });
 
-		this.statCard(statsRow, formatLocalizedNumber(stats.total), "total words", color);
-		this.statCard(statsRow, `${stats.days}`, "days written", color);
-		this.statCard(statsRow, formatLocalizedNumber(stats.avg), "daily average", color);
+		this.statCard(statsRow, formatLocalizedNumber(stats.total), "Total Words", color);
+		this.statCard(statsRow, `${stats.days}`, "Days Written", color);
+		this.statCard(statsRow, formatLocalizedNumber(stats.avg), "Daily Average", color);
 
 		// ── Horizontal heatmap ──
 		const max = yearMax(history, year);
@@ -1163,7 +1163,7 @@ class DetailModal extends Modal {
 				const dateStr = formatLocalizedDate(slot.date, {
 					weekday: "short", day: "numeric", month: "short", year: "numeric",
 				});
-				cell.dataset.tooltip = `${dateStr}: ${words} words`;
+				cell.dataset.tooltip = `${dateStr}: ${words} Words`;
 				cell.addClass("wg-tooltip");
 			}
 		}
@@ -1182,7 +1182,7 @@ class DetailModal extends Modal {
 		const sums = getMonthlySums(history, year);
 		const maxMonth = Math.max(...sums, 1);
 		const monthlyWrap = contentEl.createDiv({ cls: "wg-dt-monthly" });
-		monthlyWrap.createEl("h4", { text: "Monthly breakdown", cls: "wg-dt-monthly-title" });
+			monthlyWrap.createEl("h4", { text: "Monthly Breakdown", cls: "wg-dt-monthly-title" });
 
 		const monthGrid = monthlyWrap.createDiv({ cls: "wg-dt-month-grid" });
 		for (let i = 0; i < 12; i++) {
@@ -1267,7 +1267,7 @@ class WordGoalSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Webhook URL")
-			.setDesc("POST endpoint for the daily goal notification")
+			.setDesc("Post Endpoint for the Daily Goal Notification")
 			.addText((t) => t
 				.setPlaceholder("https://hook.example.com/...")
 				.setValue(this.plugin.settings.webhookUrl)
@@ -1277,18 +1277,18 @@ class WordGoalSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Test webhook")
-			.setDesc("Send a test payload to confirm your webhook setup")
+			.setName("Test Webhook")
+			.setDesc("Send a Test Payload to Confirm Your Webhook Setup")
 			.addButton((button) => button
-				.setButtonText("Send test webhook")
+				.setButtonText("Send Test Webhook")
 				.onClick(() => {
 					void this.runTestWebhook(button).catch((err) => console.error("Failed to send test webhook:", err));
 				})
 			);
 
 		new Setting(containerEl)
-			.setName("Daily word goal")
-			.setDesc("New words needed to trigger the webhook")
+			.setName("Daily Word Goal")
+			.setDesc("New Words Needed to Trigger the Webhook")
 			.addText((t) => t
 				.setPlaceholder("500")
 				.setValue(String(this.plugin.settings.dailyGoal))
@@ -1301,8 +1301,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 
 		// Color preset picker
 		const colorSetting = new Setting(containerEl)
-			.setName("Heatmap colour")
-			.setDesc("Choose a colour for the heatmap");
+			.setName("Heatmap Colour")
+			.setDesc("Choose a Colour for the Heatmap");
 
 		const swatchContainer = colorSetting.controlEl.createDiv({ cls: "wg-color-swatches" });
 		for (const preset of COLOR_PRESETS) {
@@ -1320,8 +1320,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(containerEl)
-			.setName("Goal-met visual cue")
-			.setDesc("Show the small marker on days where the daily word goal was met")
+			.setName("Goal-Met Visual Cue")
+			.setDesc("Show the Small Marker on Days Where the Daily Word Goal Was Met")
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.showGoalMetCue)
 				.onChange((value) => {
