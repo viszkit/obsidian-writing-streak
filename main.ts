@@ -344,7 +344,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			this.addCommand({ id: "show-daily-word-count", name: "Show today's word count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} Words`) });
 				this.addCommand({
 					id: "import-daily-stats",
-					name: "Import history from Daily Stats plugin",
+					name: "Import history from daily stats plugin",
 					callback: () => {
 						void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
 					},
@@ -764,7 +764,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 				const path = `${this.app.vault.configDir}/plugins/obsidian-daily-stats/data.json`;
 				const exists = await adapter.exists(path);
 				if (!exists) {
-						new Notice("Daily Stats plugin data.json not found.");
+						new Notice("Daily stats plugin data.json not found.");
 					return;
 				}
 			const raw = await adapter.read(path);
