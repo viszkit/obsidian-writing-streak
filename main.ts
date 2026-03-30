@@ -335,16 +335,16 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 			this.addCommand({
 				id: "open-writing-heatmap",
-				name: "Open Writing Heatmap",
+				name: "Open writing heatmap",
 				callback: () => {
 					void this.activateSidebar().catch((err) => console.error("Failed to open writing heatmap:", err));
 				},
 			});
-			this.addCommand({ id: "open-writing-stats", name: "Open Writing Stats", callback: () => new DetailModal(this.app, this).open() });
-			this.addCommand({ id: "show-daily-word-count", name: "Show Today's Word Count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} Words`) });
+			this.addCommand({ id: "open-writing-stats", name: "Open writing stats", callback: () => new DetailModal(this.app, this).open() });
+			this.addCommand({ id: "show-daily-word-count", name: "Show today's word count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} Words`) });
 				this.addCommand({
 					id: "import-daily-stats",
-					name: "Import History From Daily Stats Plugin",
+					name: "Import history from Daily Stats plugin",
 					callback: () => {
 						void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
 					},
@@ -764,7 +764,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 				const path = `${this.app.vault.configDir}/plugins/obsidian-daily-stats/data.json`;
 				const exists = await adapter.exists(path);
 				if (!exists) {
-						new Notice("Daily Stats Plugin data.json Not Found.");
+						new Notice("Daily Stats plugin data.json not found.");
 					return;
 				}
 			const raw = await adapter.read(path);
@@ -797,7 +797,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			new Notice(`Imported ${imported} Days From Daily Stats.`);
 		} catch (err) {
 			console.error("Import error:", err);
-			new Notice("Import Failed.");
+			new Notice("Import failed.");
 		}
 	}
 
@@ -946,7 +946,7 @@ class SidebarHeatmapView extends ItemView {
 	}
 
 	getViewType() { return VIEW_TYPE_HEATMAP; }
-		getDisplayText() { return "Writing Heatmap"; }
+		getDisplayText() { return "Writing heatmap"; }
 	getIcon() { return "flame"; }
 	onOpen(): Promise<void> {
 		this.shouldScrollToToday = true;
@@ -965,10 +965,10 @@ class SidebarHeatmapView extends ItemView {
 
 		// ── Top bar ──
 		const topBar = root.createDiv({ cls: "wg-sb-topbar" });
-		topBar.createDiv({ text: "Writing Heatmap", cls: "wg-sb-title" });
+		topBar.createDiv({ text: "Writing heatmap", cls: "wg-sb-title" });
 		const expandBtn = topBar.createEl("button", { cls: "wg-sb-expand-btn" });
 		setIcon(expandBtn, "maximize-2");
-		expandBtn.setAttribute("aria-label", "Open Detailed Stats");
+		expandBtn.setAttribute("aria-label", "Open detailed stats");
 		expandBtn.addEventListener("click", () => new DetailModal(this.app, this.plugin).open());
 
 		// ── Today counter (live from in-memory snapshots) ──
@@ -996,7 +996,7 @@ class SidebarHeatmapView extends ItemView {
 		progressBar.style.setProperty("--wg-progress-fill-ratio", String(fillRatio));
 		progressBar.style.setProperty("--wg-progress-goal-ratio", String(goalRatio));
 		progressBar.setAttribute("role", "progressbar");
-		progressBar.setAttribute("aria-label", "Today's Writing Progress");
+		progressBar.setAttribute("aria-label", "Today's writing progress");
 		progressBar.setAttribute("aria-valuemin", "0");
 		progressBar.setAttribute("aria-valuemax", String(Math.max(todayWords, goal)));
 		progressBar.setAttribute("aria-valuenow", String(todayWords));
@@ -1182,7 +1182,7 @@ class DetailModal extends Modal {
 		const sums = getMonthlySums(history, year);
 		const maxMonth = Math.max(...sums, 1);
 		const monthlyWrap = contentEl.createDiv({ cls: "wg-dt-monthly" });
-			monthlyWrap.createEl("h4", { text: "Monthly Breakdown", cls: "wg-dt-monthly-title" });
+			monthlyWrap.createEl("h4", { text: "Monthly breakdown", cls: "wg-dt-monthly-title" });
 
 		const monthGrid = monthlyWrap.createDiv({ cls: "wg-dt-month-grid" });
 		for (let i = 0; i < 12; i++) {
@@ -1267,7 +1267,7 @@ class WordGoalSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Webhook URL")
-			.setDesc("Post Endpoint for the Daily Goal Notification")
+			.setDesc("Post endpoint for the daily goal notification")
 			.addText((t) => t
 				.setPlaceholder("https://hook.example.com/...")
 				.setValue(this.plugin.settings.webhookUrl)
@@ -1277,18 +1277,18 @@ class WordGoalSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Test Webhook")
-			.setDesc("Send a Test Payload to Confirm Your Webhook Setup")
+			.setName("Test webhook")
+			.setDesc("Send a test payload to confirm your webhook setup")
 			.addButton((button) => button
-				.setButtonText("Send Test Webhook")
+				.setButtonText("Send test webhook")
 				.onClick(() => {
 					void this.runTestWebhook(button).catch((err) => console.error("Failed to send test webhook:", err));
 				})
 			);
 
 		new Setting(containerEl)
-			.setName("Daily Word Goal")
-			.setDesc("New Words Needed to Trigger the Webhook")
+			.setName("Daily word goal")
+			.setDesc("New words needed to trigger the webhook")
 			.addText((t) => t
 				.setPlaceholder("500")
 				.setValue(String(this.plugin.settings.dailyGoal))
@@ -1301,8 +1301,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 
 		// Color preset picker
 		const colorSetting = new Setting(containerEl)
-			.setName("Heatmap Colour")
-			.setDesc("Choose a Colour for the Heatmap");
+			.setName("Heatmap colour")
+			.setDesc("Choose a colour for the heatmap");
 
 		const swatchContainer = colorSetting.controlEl.createDiv({ cls: "wg-color-swatches" });
 		for (const preset of COLOR_PRESETS) {
@@ -1320,8 +1320,8 @@ class WordGoalSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(containerEl)
-			.setName("Goal-Met Visual Cue")
-			.setDesc("Show the Small Marker on Days Where the Daily Word Goal Was Met")
+			.setName("Goal-met visual cue")
+			.setDesc("Show the small marker on days where the daily word goal was met")
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.showGoalMetCue)
 				.onChange((value) => {
