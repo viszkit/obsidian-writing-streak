@@ -193,6 +193,25 @@
   position: relative;
 }
 
+.wg-sb-cell-clickable {
+  cursor: pointer;
+}
+
+.wg-sb-cell-clickable:hover {
+  transform: translateY(-1px);
+  z-index: 2;
+}
+
+.wg-sb-cell-clickable:focus {
+  z-index: 2;
+}
+
+.wg-sb-cell-clickable:focus-visible {
+  outline: 2px solid var(--interactive-accent, var(--text-accent));
+  outline-offset: 1px;
+  z-index: 2;
+}
+
 .wg-sb-cell-empty {
   background: var(--background-modifier-hover);
 }

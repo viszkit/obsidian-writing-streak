@@ -13,6 +13,8 @@ import {
 	MarkdownView,
 	requestUrl,
 	ButtonComponent,
+	moment,
+	normalizePath,
 } from "obsidian";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -61,6 +63,11 @@ interface WordGoalSettings {
 	dailyGoal: number;
 	heatmapColor: string;
 	showGoalMetCue: boolean;
+}
+
+interface DailyNotePathConfig {
+	format: string;
+	folder: string;
 }
 
 type StreakCardState = "idle" | "active" | "best-active";
@@ -836,6 +843,107 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
+	private getCoreDailyNotePathConfig(): DailyNotePathConfig | null {
+		const internalPlugins = (this.app as App & {
+			internalPlugins?: {
+				getPluginById?: (id: string) => unknown;
+				plugins?: Record<string, unknown>;
+			};
+		}).internalPlugins;
+		const plugin = internalPlugins?.getPluginById?.("daily-notes")
+			?? internalPlugins?.plugins?.["daily-notes"];
+		const instance = (plugin as { instance?: { options?: unknown }; options?: unknown } | undefined)?.instance;
+		const options = (instance?.options
+			?? (plugin as { options?: unknown } | undefined)?.options) as { format?: unknown; folder?: unknown } | undefined;
+
+		if (typeof options?.format !== "string" || options.format.trim().length === 0) {
+			return null;
+		}
+
+		return {
+			format: options.format.trim(),
+			folder: typeof options.folder === "string" ? options.folder.trim() : "",
+		};
+	}
+
+	private async getPeriodicDailyNotePathConfig(): Promise<DailyNotePathConfig | null> {
+		const plugins = (this.app as App & {
+			plugins?: {
+				plugins?: Record<string, unknown>;
+			};
+		}).plugins;
+		const plugin = plugins?.plugins?.["periodic-notes"] as
+			| { settings?: { daily?: { format?: unknown; folder?: unknown } } }
+			| undefined;
+		const pluginDailySettings = plugin?.settings?.daily;
+
+		if (typeof pluginDailySettings?.format === "string" && pluginDailySettings.format.trim().length > 0) {
+			return {
+				format: pluginDailySettings.format.trim(),
+				folder: typeof pluginDailySettings.folder === "string" ? pluginDailySettings.folder.trim() : "",
+			};
+		}
+
+		try {
+			const path = `${this.app.vault.configDir}/plugins/periodic-notes/data.json`;
+			const exists = await this.app.vault.adapter.exists(path);
+			if (!exists) return null;
+
+			const raw = await this.app.vault.adapter.read(path);
+			const parsed = JSON.parse(raw) as { daily?: { format?: unknown; folder?: unknown } };
+			if (typeof parsed.daily?.format !== "string" || parsed.daily.format.trim().length === 0) {
+				return null;
+			}
+
+			return {
+				format: parsed.daily.format.trim(),
+				folder: typeof parsed.daily.folder === "string" ? parsed.daily.folder.trim() : "",
+			};
+		} catch (err) {
+			console.error("Failed to read Periodic Notes settings:", err);
+			return null;
+		}
+	}
+
+	private buildDailyNotePathForDate(date: Date, config: DailyNotePathConfig): string | null {
+		if (config.format.trim().length === 0) return null;
+
+		// The configured format can itself contain path separators, so treat it as a full path fragment.
+		const formattedPath = moment(date).format(config.format);
+		if (formattedPath.trim().length === 0) return null;
+
+		const combinedPath = config.folder
+			? normalizePath(`${config.folder}/${formattedPath}`)
+			: normalizePath(formattedPath);
+
+		return combinedPath.endsWith(".md") ? combinedPath : `${combinedPath}.md`;
+	}
+
+	private async resolveDailyNotePathForDate(date: Date): Promise<string | null> {
+		const periodicConfig = await this.getPeriodicDailyNotePathConfig();
+		if (periodicConfig) {
+			return this.buildDailyNotePathForDate(date, periodicConfig);
+		}
+
+		const coreConfig = this.getCoreDailyNotePathConfig();
+		if (coreConfig) {
+			return this.buildDailyNotePathForDate(date, coreConfig);
+		}
+
+		return null;
+	}
+
+	async openDailyNoteForDate(date: Date): Promise<void> {
+		const path = await this.resolveDailyNotePathForDate(date);
+		if (!path) return;
+
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return;
+
+		const leaf = this.app.workspace.getMostRecentLeaf() ?? this.app.workspace.getLeaf(true);
+		await leaf.openFile(file);
+	}
+
 	// ── Persistence ───────────────────────────────────────────────────────
 
 	async loadPluginData() {
@@ -1038,6 +1146,22 @@ class SidebarHeatmapView extends ItemView {
 				const dateStr = formatLocalizedDate(slot.date, { day: "numeric", month: "short" });
 				cell.dataset.tooltip = `${dateStr}: ${words}`;
 				cell.addClass("wg-tooltip");
+				cell.addClass("wg-sb-cell-clickable");
+				cell.tabIndex = 0;
+				cell.setAttribute("role", "button");
+				cell.setAttribute("aria-label", `Open daily note for ${dateStr}`);
+
+				const openDailyNote = () => {
+					void this.plugin.openDailyNoteForDate(slot.date).catch((err) => {
+						console.error("Failed to open daily note from sidebar:", err);
+					});
+				};
+				cell.addEventListener("click", openDailyNote);
+				cell.addEventListener("keydown", (event) => {
+					if (event.key !== "Enter" && event.key !== " ") return;
+					event.preventDefault();
+					openDailyNote();
+				});
 			}
 		}
 
