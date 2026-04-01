@@ -7,6 +7,7 @@ import {
 	TFile,
 	ItemView,
 	WorkspaceLeaf,
+	WorkspaceMobileDrawer,
 	Modal,
 	setIcon,
 	Editor,
@@ -956,15 +957,16 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		return null;
 	}
 
-	async openDailyNoteForDate(date: Date): Promise<void> {
+	async openDailyNoteForDate(date: Date): Promise<boolean> {
 		const path = await this.resolveDailyNotePathForDate(date);
-		if (!path) return;
+		if (!path) return false;
 
 		const file = this.app.vault.getAbstractFileByPath(path);
-		if (!(file instanceof TFile)) return;
+		if (!(file instanceof TFile)) return false;
 
 		const leaf = this.app.workspace.getMostRecentLeaf() ?? this.app.workspace.getLeaf(true);
 		await leaf.openFile(file);
+		return true;
 	}
 
 	// ── Persistence ───────────────────────────────────────────────────────
@@ -1175,7 +1177,7 @@ class SidebarHeatmapView extends ItemView {
 				cell.setAttribute("aria-label", `Open daily note for ${dateStr}`);
 
 				const openDailyNote = () => {
-					void this.plugin.openDailyNoteForDate(slot.date).catch((err) => {
+					void this.openDailyNoteFromSidebar(slot.date).catch((err) => {
 						console.error("Failed to open daily note from sidebar:", err);
 					});
 				};
@@ -1350,6 +1352,22 @@ class DetailModal extends Modal {
 		for (const line of label.split("\n")) {
 			card.createDiv({ text: line, cls: "wg-dt-stat-label" });
 		}
+	}
+
+	private async openDailyNoteFromSidebar(date: Date): Promise<void> {
+		const opened = await this.plugin.openDailyNoteForDate(date);
+		if (!opened || !this.app.isMobile) return;
+
+		this.collapseMobileSidebar();
+	}
+
+	private collapseMobileSidebar(): void {
+		if (this.leaf.parent instanceof WorkspaceMobileDrawer) {
+			this.leaf.parent.collapse();
+			return;
+		}
+
+		this.app.workspace.rightSplit.collapse();
 	}
 }
 
