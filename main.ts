@@ -964,8 +964,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) return false;
 
-		const leaf = this.app.workspace.getMostRecentLeaf() ?? this.app.workspace.getLeaf(true);
+		const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit)
+			?? this.app.workspace.getLeaf(false);
 		await leaf.openFile(file);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		return true;
 	}
 
@@ -1207,6 +1209,22 @@ class SidebarHeatmapView extends ItemView {
 			this.streakCard(streakRow, "🎯", "Goal Streak", goalMet.current, goalMet.longest, color);
 	}
 
+	private async openDailyNoteFromSidebar(date: Date): Promise<void> {
+		const opened = await this.plugin.openDailyNoteForDate(date);
+		if (!opened || !this.app.isMobile) return;
+
+		this.collapseMobileSidebar();
+	}
+
+	private collapseMobileSidebar(): void {
+		if (this.leaf.parent instanceof WorkspaceMobileDrawer) {
+			this.leaf.parent.collapse();
+			return;
+		}
+
+		this.app.workspace.rightSplit.collapse();
+	}
+
 	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number, color: string) {
 		const state = getStreakCardState(current, longest);
 		const card = parent.createDiv({ cls: "wg-sb-streak-card" });
@@ -1352,22 +1370,6 @@ class DetailModal extends Modal {
 		for (const line of label.split("\n")) {
 			card.createDiv({ text: line, cls: "wg-dt-stat-label" });
 		}
-	}
-
-	private async openDailyNoteFromSidebar(date: Date): Promise<void> {
-		const opened = await this.plugin.openDailyNoteForDate(date);
-		if (!opened || !this.app.isMobile) return;
-
-		this.collapseMobileSidebar();
-	}
-
-	private collapseMobileSidebar(): void {
-		if (this.leaf.parent instanceof WorkspaceMobileDrawer) {
-			this.leaf.parent.collapse();
-			return;
-		}
-
-		this.app.workspace.rightSplit.collapse();
 	}
 }
 
