@@ -328,6 +328,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private editorByFilePath = new Map<string, Editor>();
 	private lastObservedWordsByPath = new Map<string, number>();
 	private activeMarkdownEditor: Editor | null = null;
+	private hasCompletedInitialHydration = false;
 	private celebrateGoalUntil = 0;
 	private celebrateGoalTimer: number | null = null;
 
@@ -406,7 +407,6 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 			this.refreshMarkdownEditorCache();
-			this.initializeOpenViewSnapshots();
 			void this.handleLayoutReady().catch((err) => console.error("Failed during layout-ready initialization:", err));
 		});
 	}
@@ -507,6 +507,19 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		existing.current = words;
 	}
 
+	private primeFileWords(file: TFile, words: number) {
+		this.ensureCurrentDay();
+		const path = file.path;
+		this.lastObservedWordsByPath.set(path, words);
+		const existing = this.data.todaysWordCount[path];
+		if (!existing) {
+			this.data.todaysWordCount[path] = { initial: words, peak: words, current: words };
+			return;
+		}
+
+		existing.current = words;
+	}
+
 	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
 		if (!leaf) return;
 		const view = leaf.view;
@@ -517,7 +530,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const file = view.file;
 		if (!file) return;
 		this.activeMarkdownEditor = view.editor;
-		this.observeFileWords(file, countWords(view.editor.getValue()));
+		if (!this.hasCompletedInitialHydration) return;
+		this.primeFileWords(file, countWords(view.editor.getValue()));
 	}
 
 	private initializeOpenViewSnapshots() {
@@ -540,12 +554,19 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 	private async handleLayoutReady() {
 		await this.reloadSyncedDataAndRefreshUi();
+		this.hasCompletedInitialHydration = true;
+		this.initializeOpenViewSnapshots();
+		this.syncTodayHistory();
+		this.markDirty({ refreshSidebar: true });
+		this.scheduleSave();
+		this.refreshUi();
 		await this.activateSidebar();
 	}
 
 	// ── Word tracking (fast, synchronous, runs on every keystroke) ───────
 
 	private trackEditorChange(editor: Editor) {
+		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
 
 		if (this.activeMarkdownEditor !== editor && !this.filePathByEditor.has(editor)) return;
@@ -567,6 +588,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	private async handleVaultModify(file: TFile) {
+		if (!this.hasCompletedInitialHydration) return;
 		await this.reloadAndMergeSyncedPluginData();
 		const liveEditor = this.editorByFilePath.get(file.path);
 		if (liveEditor) {
@@ -586,6 +608,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	private handleFileRename(file: TFile, oldPath: string) {
+		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
 		const existing = this.data.todaysWordCount[oldPath];
 		if (!existing || oldPath === file.path) return;
