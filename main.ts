@@ -766,7 +766,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 		const serialized = JSON.stringify(data, null, 2);
 		await this.app.vault.adapter.write(this.getPluginDataPath(), serialized);
-		new Notice("Writing Tracker recovered plugin data from a backup copy.");
+		new Notice("Writing tracker recovered plugin data from a backup copy.");
 		return true;
 	}
 
