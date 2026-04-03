@@ -62,6 +62,7 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
 ## Data and privacy
 
 - Plugin data is stored in your vault under `.obsidian/plugins/word-goal-webhook/data.json`.
+- The plugin also keeps rolling backup copies in the same folder as `data.backup-1.json` through `data.backup-3.json` and automatically restores the newest valid copy if `data.json` is missing or corrupted.
 - The plugin makes network requests only when you configure a webhook URL and your daily goal is reached.
 - The plugin does not require an account, payment, ads, or telemetry.
 - The source code in this repository is open source.

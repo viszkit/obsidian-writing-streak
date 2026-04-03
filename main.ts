@@ -48,6 +48,7 @@ interface DailyRecord {
 }
 
 interface PluginData {
+	version?: number;
 	settings: WordGoalSettings;
 	/** Completed days: key = "YYYY-MM-DD" */
 	history: Record<string, DailyRecord>;
@@ -81,12 +82,16 @@ const DEFAULT_SETTINGS: WordGoalSettings = {
 };
 
 const DEFAULT_DATA: PluginData = {
+	version: 1,
 	settings: { ...DEFAULT_SETTINGS },
 	history: {},
 	todaysWordCount: {},
 	todaysDate: "",
 	lastWebhookSentDate: "",
 };
+
+const PLUGIN_DATA_VERSION = 1;
+const BACKUP_FILE_COUNT = 3;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -307,10 +312,67 @@ function buildYearGrid(year: number): { dayIndex: number; date: Date | null }[][
 	return weeks;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidFileSnapshot(value: unknown): value is FileSnapshot {
+	if (!isPlainObject(value)) return false;
+	if (!isFiniteNumber(value.initial)) return false;
+	if ("peak" in value && value.peak !== undefined && !isFiniteNumber(value.peak)) return false;
+	if ("current" in value && value.current !== undefined && !isFiniteNumber(value.current)) return false;
+	return true;
+}
+
+function isValidDailyRecord(value: unknown): value is DailyRecord {
+	if (!isPlainObject(value)) return false;
+	if (!isFiniteNumber(value.totalWords)) return false;
+	if ("goalMet" in value && value.goalMet !== undefined && typeof value.goalMet !== "boolean") return false;
+	return true;
+}
+
+function isValidWordGoalSettings(value: unknown): value is Partial<WordGoalSettings> {
+	if (!isPlainObject(value)) return false;
+	if ("webhookUrl" in value && value.webhookUrl !== undefined && typeof value.webhookUrl !== "string") return false;
+	if ("dailyGoal" in value && value.dailyGoal !== undefined && !isFiniteNumber(value.dailyGoal)) return false;
+	if ("heatmapColor" in value && value.heatmapColor !== undefined && typeof value.heatmapColor !== "string") return false;
+	if ("showGoalMetCue" in value && value.showGoalMetCue !== undefined && typeof value.showGoalMetCue !== "boolean") return false;
+	return true;
+}
+
+function isValidPluginDataShape(value: unknown): value is Partial<PluginData> {
+	if (!isPlainObject(value)) return false;
+	if ("version" in value && value.version !== undefined && !isFiniteNumber(value.version)) return false;
+	if ("settings" in value && value.settings !== undefined && !isValidWordGoalSettings(value.settings)) return false;
+	if ("todaysDate" in value && value.todaysDate !== undefined && typeof value.todaysDate !== "string") return false;
+	if ("lastWebhookSentDate" in value && value.lastWebhookSentDate !== undefined && typeof value.lastWebhookSentDate !== "string") return false;
+
+	if ("history" in value && value.history !== undefined) {
+		if (!isPlainObject(value.history)) return false;
+		for (const record of Object.values(value.history)) {
+			if (!isValidDailyRecord(record)) return false;
+		}
+	}
+
+	if ("todaysWordCount" in value && value.todaysWordCount !== undefined) {
+		if (!isPlainObject(value.todaysWordCount)) return false;
+		for (const snapshot of Object.values(value.todaysWordCount)) {
+			if (!isValidFileSnapshot(snapshot)) return false;
+		}
+	}
+
+	return true;
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 export default class WordGoalWebhookPlugin extends Plugin {
 	data: PluginData = {
+		version: PLUGIN_DATA_VERSION,
 		settings: { ...DEFAULT_SETTINGS },
 		history: {},
 		todaysWordCount: {},
@@ -674,6 +736,62 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		return `${this.app.vault.configDir}/plugins/${this.manifest.id}/data.json`;
 	}
 
+	private getBackupPaths(): string[] {
+		return Array.from({ length: BACKUP_FILE_COUNT }, (_, index) => (
+			`${this.app.vault.configDir}/plugins/${this.manifest.id}/data.backup-${index + 1}.json`
+		));
+	}
+
+	private async readAndValidatePluginData(path: string): Promise<PluginData | null> {
+		try {
+			const exists = await this.app.vault.adapter.exists(path);
+			if (!exists) return null;
+
+			const raw = await this.app.vault.adapter.read(path);
+			if (raw.trim().length === 0) return null;
+
+			const parsed = JSON.parse(raw);
+			if (!isValidPluginDataShape(parsed)) return null;
+
+			return this.normalizeLoadedData(parsed);
+		} catch (err) {
+			console.error(`Failed to read plugin data at ${path}:`, err);
+			return null;
+		}
+	}
+
+	private async restorePrimaryFromBackup(path: string) {
+		const data = await this.readAndValidatePluginData(path);
+		if (!data) return false;
+
+		const serialized = JSON.stringify(data, null, 2);
+		await this.app.vault.adapter.write(this.getPluginDataPath(), serialized);
+		new Notice("Writing Tracker recovered plugin data from a backup copy.");
+		return true;
+	}
+
+	private async loadBestAvailablePluginData(): Promise<{ data: PluginData; sourcePath: string | null }> {
+		const primaryPath = this.getPluginDataPath();
+		const candidates = [primaryPath, ...this.getBackupPaths()];
+
+		for (const path of candidates) {
+			const data = await this.readAndValidatePluginData(path);
+			if (!data) continue;
+
+			if (path !== primaryPath) {
+				try {
+					await this.restorePrimaryFromBackup(path);
+				} catch (err) {
+					console.error(`Failed to restore primary plugin data from ${path}:`, err);
+				}
+			}
+
+			return { data, sourcePath: path };
+		}
+
+		return { data: this.normalizeLoadedData(DEFAULT_DATA), sourcePath: null };
+	}
+
 	private mergeSnapshot(a: FileSnapshot, b: FileSnapshot): FileSnapshot {
 		return {
 			initial: Math.min(a.initial, b.initial),
@@ -723,9 +841,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (this.pluginDataMtime !== null && stat.mtime <= this.pluginDataMtime) return;
 
 		try {
-			const raw = await this.app.vault.adapter.read(path);
-			const parsed = JSON.parse(raw);
-			const incoming = this.normalizeLoadedData(parsed);
+			const incoming = await this.readAndValidatePluginData(path);
+			if (!incoming) return;
 			this.mergePluginData(incoming);
 			this.pluginDataMtime = stat.mtime;
 		} catch (err) {
@@ -974,15 +1091,23 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	// ── Persistence ───────────────────────────────────────────────────────
 
 	async loadPluginData() {
-		const loaded = await this.loadData();
-		this.data = this.normalizeLoadedData(loaded);
+		const { data, sourcePath } = await this.loadBestAvailablePluginData();
+		this.data = data;
 		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
-		this.pluginDataMtime = stat?.mtime ?? null;
+		if (stat) {
+			this.pluginDataMtime = stat.mtime;
+		} else if (sourcePath) {
+			const sourceStat = await this.app.vault.adapter.stat(sourcePath);
+			this.pluginDataMtime = sourceStat?.mtime ?? null;
+		} else {
+			this.pluginDataMtime = null;
+		}
 		this.mergePluginData(this.data);
 	}
 
 	private normalizeLoadedData(loaded: Partial<PluginData> | null | undefined): PluginData {
 		const data = Object.assign({}, DEFAULT_DATA, loaded);
+		data.version = PLUGIN_DATA_VERSION;
 		data.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
 		data.history = data.history ?? {};
 		data.todaysWordCount = data.todaysWordCount ?? {};
@@ -1014,9 +1139,58 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	async savePluginData() {
-		await this.saveData(this.data);
+		await this.savePluginDataSafely();
 		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
 		this.pluginDataMtime = stat?.mtime ?? this.pluginDataMtime;
+	}
+
+	private async rotateBackupFiles() {
+		const adapter = this.app.vault.adapter;
+		const backupPaths = this.getBackupPaths();
+
+		for (let index = backupPaths.length - 1; index > 0; index--) {
+			const from = backupPaths[index - 1];
+			const to = backupPaths[index];
+			if (await adapter.exists(to)) {
+				await adapter.remove(to);
+			}
+			if (await adapter.exists(from)) {
+				await adapter.rename(from, to);
+			}
+		}
+
+		const primaryPath = this.getPluginDataPath();
+		if (await adapter.exists(primaryPath)) {
+			const firstBackup = backupPaths[0];
+			if (await adapter.exists(firstBackup)) {
+				await adapter.remove(firstBackup);
+			}
+			await adapter.copy(primaryPath, firstBackup);
+		}
+	}
+
+	private async savePluginDataSafely() {
+		const primaryPath = this.getPluginDataPath();
+		const diskData = await this.loadBestAvailablePluginData();
+		if (diskData.sourcePath) {
+			this.mergePluginData(diskData.data);
+		}
+
+		this.data = this.normalizeLoadedData(this.data);
+		const serialized = JSON.stringify(this.data, null, 2);
+
+		await this.rotateBackupFiles();
+
+		const hasAnyBackup = await Promise.all(this.getBackupPaths().map((path) => this.app.vault.adapter.exists(path)))
+			.then((results) => results.some(Boolean));
+		const primaryExists = await this.app.vault.adapter.exists(primaryPath);
+
+		// Allow initial bootstrap writes when no file exists yet; otherwise keep a backup before replacing primary.
+		if (!hasAnyBackup && primaryExists) {
+			await this.app.vault.adapter.copy(primaryPath, this.getBackupPaths()[0]);
+		}
+
+		await this.app.vault.adapter.write(primaryPath, serialized);
 	}
 
 	// ── Webhook ───────────────────────────────────────────────────────────
