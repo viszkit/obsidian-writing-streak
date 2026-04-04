@@ -139,7 +139,7 @@ export class PluginDataStore<TSettings> {
 			if (raw.trim().length === 0) return null;
 			const parsed = JSON.parse(raw) as LegacyShape<TSettings>;
 			return normalizePluginData(parsed, this.defaultSettings, this.getTodayKey(), this.version);
-		} catch (_error) {
+		} catch {
 			return null;
 		}
 	}

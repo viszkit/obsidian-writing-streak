@@ -64,14 +64,6 @@ const DEFAULT_SETTINGS: WordGoalSettings = {
 	showGoalMetCue: true,
 };
 
-const DEFAULT_DATA: PluginDataShape<WordGoalSettings> = {
-	version: 2,
-	settings: { ...DEFAULT_SETTINGS },
-	history: {},
-	activeDay: createEmptyActiveDay(todayKey()),
-	lastWebhookSentDate: "",
-};
-
 const PLUGIN_DATA_VERSION = 2;
 const BACKUP_FILE_COUNT = 3;
 
@@ -90,8 +82,6 @@ function todayKey(): string { return dateToKey(new Date()); }
 function isToday(date: Date): boolean {
 	return dateToKey(date) === todayKey();
 }
-
-function countWords(text: string): number { return (text.match(/\S+/g) || []).length; }
 
 function runtimeLocale(): string {
 	if (typeof window !== "undefined" && typeof window.navigator?.language === "string" && window.navigator.language.length > 0) {

@@ -28,7 +28,7 @@ function getWordMatcher(): RegExp {
 	if (wordMatcher) return wordMatcher;
 	try {
 		wordMatcher = /[\p{L}\p{N}]+(?:[-_'’][\p{L}\p{N}]+)*/gu;
-	} catch (_error) {
+	} catch {
 		wordMatcher = /[A-Za-z0-9]+(?:[-_'’][A-Za-z0-9]+)*/g;
 	}
 	return wordMatcher;
@@ -61,8 +61,8 @@ function removeCodeBlocks(content: string): string {
 
 function replaceMarkdownLinks(content: string): string {
 	return content
-		.replace(/!\[([^\]]*)\]\([^\)]*\)/g, " $1 ")
-		.replace(/\[([^\]]+)\]\([^\)]*\)/g, " $1 ")
+		.replace(/!\[([^\]]*)\]\([^)]*\)/g, " $1 ")
+		.replace(/\[([^\]]+)\]\([^)]*\)/g, " $1 ")
 		.replace(/!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, target: string, alias?: string) => {
 			const text = alias ?? target.split("/").pop() ?? target;
 			return ` ${text.replace(/\.[^.]+$/, "")} `;
