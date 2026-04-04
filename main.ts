@@ -17,6 +17,15 @@ import {
 	moment,
 	normalizePath,
 } from "obsidian";
+import { countMeaningfulWords } from "./src/counting";
+import {
+	createEmptyActiveDay,
+	getTodayTotal,
+	renameFileProgress,
+	type DailyRecord,
+	updateFileProgress,
+} from "./src/daily-progress";
+import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -33,32 +42,6 @@ const COLOR_PRESETS: { label: string; hex: string }[] = [
 	{ label: "Yellow", hex: "#facc15" },
 	{ label: "Red",    hex: "#f87171" },
 ];
-
-// ─── Interfaces ──────────────────────────────────────────────────────────────
-
-interface FileSnapshot {
-	initial: number;
-	peak: number;
-	current?: number;
-}
-
-interface DailyRecord {
-	totalWords: number;
-	goalMet?: boolean;
-}
-
-interface PluginData {
-	version?: number;
-	settings: WordGoalSettings;
-	/** Completed days: key = "YYYY-MM-DD" */
-	history: Record<string, DailyRecord>;
-	/** Today's per-file tracking — persisted to survive restarts */
-	todaysWordCount: Record<string, FileSnapshot>;
-	/** Which day todaysWordCount belongs to */
-	todaysDate: string;
-	/** Which day already triggered the webhook */
-	lastWebhookSentDate: string;
-}
 
 interface WordGoalSettings {
 	webhookUrl: string;
@@ -81,16 +64,15 @@ const DEFAULT_SETTINGS: WordGoalSettings = {
 	showGoalMetCue: true,
 };
 
-const DEFAULT_DATA: PluginData = {
-	version: 1,
+const DEFAULT_DATA: PluginDataShape<WordGoalSettings> = {
+	version: 2,
 	settings: { ...DEFAULT_SETTINGS },
 	history: {},
-	todaysWordCount: {},
-	todaysDate: "",
+	activeDay: createEmptyActiveDay(todayKey()),
 	lastWebhookSentDate: "",
 };
 
-const PLUGIN_DATA_VERSION = 1;
+const PLUGIN_DATA_VERSION = 2;
 const BACKUP_FILE_COUNT = 3;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -312,71 +294,14 @@ function buildYearGrid(year: number): { dayIndex: number; date: Date | null }[][
 	return weeks;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isFiniteNumber(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value);
-}
-
-function isValidFileSnapshot(value: unknown): value is FileSnapshot {
-	if (!isPlainObject(value)) return false;
-	if (!isFiniteNumber(value.initial)) return false;
-	if ("peak" in value && value.peak !== undefined && !isFiniteNumber(value.peak)) return false;
-	if ("current" in value && value.current !== undefined && !isFiniteNumber(value.current)) return false;
-	return true;
-}
-
-function isValidDailyRecord(value: unknown): value is DailyRecord {
-	if (!isPlainObject(value)) return false;
-	if (!isFiniteNumber(value.totalWords)) return false;
-	if ("goalMet" in value && value.goalMet !== undefined && typeof value.goalMet !== "boolean") return false;
-	return true;
-}
-
-function isValidWordGoalSettings(value: unknown): value is Partial<WordGoalSettings> {
-	if (!isPlainObject(value)) return false;
-	if ("webhookUrl" in value && value.webhookUrl !== undefined && typeof value.webhookUrl !== "string") return false;
-	if ("dailyGoal" in value && value.dailyGoal !== undefined && !isFiniteNumber(value.dailyGoal)) return false;
-	if ("heatmapColor" in value && value.heatmapColor !== undefined && typeof value.heatmapColor !== "string") return false;
-	if ("showGoalMetCue" in value && value.showGoalMetCue !== undefined && typeof value.showGoalMetCue !== "boolean") return false;
-	return true;
-}
-
-function isValidPluginDataShape(value: unknown): value is Partial<PluginData> {
-	if (!isPlainObject(value)) return false;
-	if ("version" in value && value.version !== undefined && !isFiniteNumber(value.version)) return false;
-	if ("settings" in value && value.settings !== undefined && !isValidWordGoalSettings(value.settings)) return false;
-	if ("todaysDate" in value && value.todaysDate !== undefined && typeof value.todaysDate !== "string") return false;
-	if ("lastWebhookSentDate" in value && value.lastWebhookSentDate !== undefined && typeof value.lastWebhookSentDate !== "string") return false;
-
-	if ("history" in value && value.history !== undefined) {
-		if (!isPlainObject(value.history)) return false;
-		for (const record of Object.values(value.history)) {
-			if (!isValidDailyRecord(record)) return false;
-		}
-	}
-
-	if ("todaysWordCount" in value && value.todaysWordCount !== undefined) {
-		if (!isPlainObject(value.todaysWordCount)) return false;
-		for (const snapshot of Object.values(value.todaysWordCount)) {
-			if (!isValidFileSnapshot(snapshot)) return false;
-		}
-	}
-
-	return true;
-}
-
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 export default class WordGoalWebhookPlugin extends Plugin {
-	data: PluginData = {
+	data: PluginDataShape<WordGoalSettings> = {
 		version: PLUGIN_DATA_VERSION,
 		settings: { ...DEFAULT_SETTINGS },
 		history: {},
-		todaysWordCount: {},
-		todaysDate: "",
+		activeDay: createEmptyActiveDay(todayKey()),
 		lastWebhookSentDate: "",
 	};
 	private statusBarEl: HTMLElement | null = null;
@@ -390,12 +315,22 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private filePathByEditor = new Map<Editor, string>();
 	private editorByFilePath = new Map<string, Editor>();
 	private lastObservedWordsByPath = new Map<string, number>();
-	private activeMarkdownEditor: Editor | null = null;
 	private hasCompletedInitialHydration = false;
 	private celebrateGoalUntil = 0;
 	private celebrateGoalTimer: number | null = null;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
+
+	private getDataStore(): PluginDataStore<WordGoalSettings> {
+		return new PluginDataStore(
+			this.app.vault.adapter,
+			this.getPluginDataPath(),
+			this.getBackupPaths(),
+			DEFAULT_SETTINGS,
+			PLUGIN_DATA_VERSION,
+			() => todayKey()
+		);
+	}
 
 	async onload() {
 		await this.loadPluginData();
@@ -488,24 +423,22 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	// ── Today's total — computed from persisted snapshots ─────────────────
 
 	todaysTotal(): number {
-		let sum = 0;
-		for (const snap of Object.values(this.data.todaysWordCount)) {
-			sum += Math.max(snap.peak - snap.initial, 0);
-		}
-		return sum;
+		return getTodayTotal(this.data.activeDay);
 	}
 
 	// ── Day rollover ─────────────────────────────────────────────────────
 
 	private handleDayRollover() {
 		const today = todayKey();
-		if (this.data.todaysDate && this.data.todaysDate !== today) {
-			// Finalize yesterday's count into history
-			this.finalizeDay(this.data.todaysDate);
+		if (this.data.activeDay.date && this.data.activeDay.date !== today) {
+			this.finalizeDay(this.data.activeDay.date);
 		}
-		if (this.data.todaysDate !== today) {
-			this.data.todaysDate = today;
-			this.data.todaysWordCount = {};
+		if (this.data.activeDay.date !== today) {
+			this.data.activeDay = createEmptyActiveDay(today);
+			this.lastObservedWordsByPath.clear();
+			if (this.hasCompletedInitialHydration) {
+				this.initializeOpenViewSnapshots();
+			}
 		}
 		this.syncTodayHistory();
 	}
@@ -515,8 +448,8 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	private finalizeToday() {
-		if (this.data.todaysDate) {
-			this.syncHistoryEntry(this.data.todaysDate, this.todaysTotal());
+		if (this.data.activeDay.date) {
+			this.syncHistoryEntry(this.data.activeDay.date, this.todaysTotal());
 		}
 	}
 
@@ -530,6 +463,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			this.data.history[dateKey] = {
 				totalWords,
 				goalMet: existing?.goalMet === true || totalWords >= this.settings.dailyGoal,
+				updatedAt: Date.now(),
 			};
 			return;
 		}
@@ -551,50 +485,39 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	private ensureCurrentDay() {
-		if (this.data.todaysDate !== todayKey()) {
+		if (this.data.activeDay.date !== todayKey()) {
 			this.handleDayRollover();
 		}
 	}
 
-	private observeFileWords(file: TFile, words: number) {
+	private observeFileWords(file: TFile, words: number, observedAt = Date.now()) {
 		this.ensureCurrentDay();
 		const path = file.path;
+		const previousWords = this.lastObservedWordsByPath.get(path);
+		const existing = this.data.activeDay.files[path];
+		this.data.activeDay = updateFileProgress(
+			this.data.activeDay,
+			todayKey(),
+			path,
+			words,
+			observedAt,
+			existing ? undefined : previousWords
+		);
 		this.lastObservedWordsByPath.set(path, words);
-		const existing = this.data.todaysWordCount[path];
-		if (!existing) {
-			this.data.todaysWordCount[path] = { initial: words, peak: words };
-			return;
-		}
-
-		existing.peak = Math.max(existing.peak, words);
-		existing.current = words;
 	}
 
 	private primeFileWords(file: TFile, words: number) {
-		this.ensureCurrentDay();
-		const path = file.path;
-		this.lastObservedWordsByPath.set(path, words);
-		const existing = this.data.todaysWordCount[path];
-		if (!existing) {
-			this.data.todaysWordCount[path] = { initial: words, peak: words, current: words };
-			return;
-		}
-
-		existing.current = words;
+		this.observeFileWords(file, words, Date.now());
 	}
 
 	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
 		if (!leaf) return;
 		const view = leaf.view;
-		if (!(view instanceof MarkdownView)) {
-			this.activeMarkdownEditor = null;
-			return;
-		}
+		if (!(view instanceof MarkdownView)) return;
 		const file = view.file;
 		if (!file) return;
-		this.activeMarkdownEditor = view.editor;
 		if (!this.hasCompletedInitialHydration) return;
-		this.primeFileWords(file, countWords(view.editor.getValue()));
+		this.primeFileWords(file, this.countEditorWords(file, view.editor));
 	}
 
 	private initializeOpenViewSnapshots() {
@@ -615,6 +538,15 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
+	private countEditorWords(file: TFile, editor: Editor): number {
+		return countMeaningfulWords(editor.getValue(), this.app.metadataCache.getCache(file.path));
+	}
+
+	private async countStoredFileWords(file: TFile): Promise<number> {
+		const content = await this.app.vault.cachedRead(file);
+		return countMeaningfulWords(content, this.app.metadataCache.getCache(file.path));
+	}
+
 	private async handleLayoutReady() {
 		await this.reloadSyncedDataAndRefreshUi();
 		this.hasCompletedInitialHydration = true;
@@ -632,14 +564,14 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
 
-		if (this.activeMarkdownEditor !== editor && !this.filePathByEditor.has(editor)) return;
+		if (!this.filePathByEditor.has(editor)) return;
 
 		const view = this.resolveMarkdownViewForEditor(editor);
 		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
 
-		const words = countWords(editor.getValue());
-		if (this.lastObservedWordsByPath.get(file.path) === words) return;
+		const words = this.countEditorWords(file, editor);
+		if (this.lastObservedWordsByPath.get(file.path) === words && this.data.activeDay.files[file.path]?.latestWords === words) return;
 
 		this.observeFileWords(file, words);
 		this.syncTodayHistory();
@@ -655,12 +587,12 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		await this.reloadAndMergeSyncedPluginData();
 		const liveEditor = this.editorByFilePath.get(file.path);
 		if (liveEditor) {
-			const liveWords = countWords(liveEditor.getValue());
-			if (this.lastObservedWordsByPath.get(file.path) === liveWords) return;
+			const liveWords = this.countEditorWords(file, liveEditor);
+			if (this.lastObservedWordsByPath.get(file.path) === liveWords && this.data.activeDay.files[file.path]?.latestWords === liveWords) return;
 			this.observeFileWords(file, liveWords);
 		} else {
-			const words = countWords(await this.app.vault.cachedRead(file));
-			if (this.lastObservedWordsByPath.get(file.path) === words) return;
+			const words = await this.countStoredFileWords(file);
+			if (this.lastObservedWordsByPath.get(file.path) === words && this.data.activeDay.files[file.path]?.latestWords === words) return;
 			this.observeFileWords(file, words);
 		}
 		this.syncTodayHistory();
@@ -673,14 +605,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private handleFileRename(file: TFile, oldPath: string) {
 		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
-		const existing = this.data.todaysWordCount[oldPath];
-		if (!existing || oldPath === file.path) return;
-
-		const renamed = this.data.todaysWordCount[file.path];
-		this.data.todaysWordCount[file.path] = renamed
-			? this.mergeSnapshot(existing, renamed)
-			: existing;
-		delete this.data.todaysWordCount[oldPath];
+		this.data.activeDay = renameFileProgress(this.data.activeDay, oldPath, file.path);
 		const previousWords = this.lastObservedWordsByPath.get(oldPath);
 		if (previousWords !== undefined) {
 			this.lastObservedWordsByPath.delete(oldPath);
@@ -701,10 +626,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private maybeCelebrateGoal() {
 		if (
 			this.todaysTotal() >= this.settings.dailyGoal &&
-			this.data.lastWebhookSentDate !== this.data.todaysDate &&
-			this.webhookSendInFlightDate !== this.data.todaysDate
+			this.data.lastWebhookSentDate !== this.data.activeDay.date &&
+			this.webhookSendInFlightDate !== this.data.activeDay.date
 		) {
-			this.webhookSendInFlightDate = this.data.todaysDate;
+			this.webhookSendInFlightDate = this.data.activeDay.date;
 			this.triggerGoalCelebration();
 			new Notice(`🎉 You Hit ${this.settings.dailyGoal} Words Today!`);
 			void this.fireWebhook();
@@ -742,98 +667,6 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		));
 	}
 
-	private async readAndValidatePluginData(path: string): Promise<PluginData | null> {
-		try {
-			const exists = await this.app.vault.adapter.exists(path);
-			if (!exists) return null;
-
-			const raw = await this.app.vault.adapter.read(path);
-			if (raw.trim().length === 0) return null;
-
-			const parsed = JSON.parse(raw);
-			if (!isValidPluginDataShape(parsed)) return null;
-
-			return this.normalizeLoadedData(parsed);
-		} catch (err) {
-			console.error(`Failed to read plugin data at ${path}:`, err);
-			return null;
-		}
-	}
-
-	private async restorePrimaryFromBackup(path: string) {
-		const data = await this.readAndValidatePluginData(path);
-		if (!data) return false;
-
-		const serialized = JSON.stringify(data, null, 2);
-		await this.app.vault.adapter.write(this.getPluginDataPath(), serialized);
-		new Notice("Writing tracker recovered plugin data from a backup copy.");
-		return true;
-	}
-
-	private async loadBestAvailablePluginData(): Promise<{ data: PluginData; sourcePath: string | null }> {
-		const primaryPath = this.getPluginDataPath();
-		const candidates = [primaryPath, ...this.getBackupPaths()];
-
-		for (const path of candidates) {
-			const data = await this.readAndValidatePluginData(path);
-			if (!data) continue;
-
-			if (path !== primaryPath) {
-				try {
-					await this.restorePrimaryFromBackup(path);
-				} catch (err) {
-					console.error(`Failed to restore primary plugin data from ${path}:`, err);
-				}
-			}
-
-			return { data, sourcePath: path };
-		}
-
-		return { data: this.normalizeLoadedData(DEFAULT_DATA), sourcePath: null };
-	}
-
-	private mergeSnapshot(a: FileSnapshot, b: FileSnapshot): FileSnapshot {
-		return {
-			initial: Math.min(a.initial, b.initial),
-			peak: Math.max(a.peak, b.peak),
-			current: Math.max(a.current ?? a.peak, b.current ?? b.peak),
-		};
-	}
-
-	private mergeHistoryEntry(local: DailyRecord | undefined, incoming: DailyRecord | undefined): DailyRecord | undefined {
-		if (!local) return incoming ? { ...incoming } : undefined;
-		if (!incoming) return local;
-		return {
-			totalWords: Math.max(local.totalWords, incoming.totalWords),
-			goalMet: local.goalMet === true || incoming.goalMet === true,
-		};
-	}
-
-	private mergePluginData(incoming: PluginData) {
-		const today = todayKey();
-		this.ensureCurrentDay();
-
-		for (const [dateKey, incomingRecord] of Object.entries(incoming.history ?? {})) {
-			const merged = this.mergeHistoryEntry(this.data.history[dateKey], incomingRecord);
-			if (merged) this.data.history[dateKey] = merged;
-		}
-
-		if (incoming.todaysDate === today) {
-			for (const [path, incomingSnapshot] of Object.entries(incoming.todaysWordCount ?? {})) {
-				const localSnapshot = this.data.todaysWordCount[path];
-				this.data.todaysWordCount[path] = localSnapshot
-					? this.mergeSnapshot(localSnapshot, incomingSnapshot)
-					: { ...incomingSnapshot };
-			}
-		}
-
-		if ((incoming.lastWebhookSentDate ?? "") > (this.data.lastWebhookSentDate ?? "")) {
-			this.data.lastWebhookSentDate = incoming.lastWebhookSentDate;
-		}
-
-		this.syncTodayHistory();
-	}
-
 	private async reloadAndMergeSyncedPluginData() {
 		const path = this.getPluginDataPath();
 		const stat = await this.app.vault.adapter.stat(path);
@@ -841,9 +674,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (this.pluginDataMtime !== null && stat.mtime <= this.pluginDataMtime) return;
 
 		try {
-			const incoming = await this.readAndValidatePluginData(path);
+			const incoming = await this.getDataStore().readAndValidate(path);
 			if (!incoming) return;
-			this.mergePluginData(incoming);
+			this.data = this.getDataStore().merge(this.data, incoming);
+			this.syncTodayHistory();
 			this.pluginDataMtime = stat.mtime;
 		} catch (err) {
 			console.error("Failed to reload synced plugin data:", err);
@@ -935,6 +769,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 					this.data.history[isoKey] = {
 						totalWords: words,
 						goalMet: words >= this.settings.dailyGoal,
+						updatedAt: 0,
 					};
 					imported++;
 				}
@@ -953,7 +788,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 	private updateStatusBar() {
 		if (!this.statusBarEl) return;
-		if (this.data.todaysDate !== todayKey()) this.handleDayRollover();
+		if (this.data.activeDay.date !== todayKey()) this.handleDayRollover();
 
 		const total = this.todaysTotal();
 		const goal = this.settings.dailyGoal;
@@ -1091,7 +926,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	// ── Persistence ───────────────────────────────────────────────────────
 
 	async loadPluginData() {
-		const { data, sourcePath } = await this.loadBestAvailablePluginData();
+		const { data, sourcePath } = await this.getDataStore().loadBestAvailable();
 		this.data = data;
 		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
 		if (stat) {
@@ -1102,40 +937,6 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		} else {
 			this.pluginDataMtime = null;
 		}
-		this.mergePluginData(this.data);
-	}
-
-	private normalizeLoadedData(loaded: Partial<PluginData> | null | undefined): PluginData {
-		const data = Object.assign({}, DEFAULT_DATA, loaded);
-		data.version = PLUGIN_DATA_VERSION;
-		data.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
-		data.history = data.history ?? {};
-		data.todaysWordCount = data.todaysWordCount ?? {};
-		data.todaysDate = data.todaysDate ?? "";
-		data.lastWebhookSentDate = data.lastWebhookSentDate ?? "";
-
-		for (const record of Object.values(data.history)) {
-			if (record.totalWords > 0 && record.goalMet === undefined) {
-				record.goalMet = record.totalWords >= data.settings.dailyGoal;
-			}
-		}
-
-		for (const [path, snapshot] of Object.entries(data.todaysWordCount)) {
-			const migrated = snapshot as FileSnapshot & { current?: number; peak?: number };
-			const initial = typeof migrated.initial === "number" ? migrated.initial : 0;
-			const peakCandidate = typeof migrated.peak === "number"
-				? migrated.peak
-				: typeof migrated.current === "number"
-					? migrated.current
-					: initial;
-			data.todaysWordCount[path] = {
-				initial,
-				peak: Math.max(initial, peakCandidate),
-				current: typeof migrated.current === "number" ? migrated.current : peakCandidate,
-			};
-		}
-
-		return data;
 	}
 
 	async savePluginData() {
@@ -1144,53 +945,13 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.pluginDataMtime = stat?.mtime ?? this.pluginDataMtime;
 	}
 
-	private async rotateBackupFiles() {
-		const adapter = this.app.vault.adapter;
-		const backupPaths = this.getBackupPaths();
-
-		for (let index = backupPaths.length - 1; index > 0; index--) {
-			const from = backupPaths[index - 1];
-			const to = backupPaths[index];
-			if (await adapter.exists(to)) {
-				await adapter.remove(to);
-			}
-			if (await adapter.exists(from)) {
-				await adapter.rename(from, to);
-			}
-		}
-
-		const primaryPath = this.getPluginDataPath();
-		if (await adapter.exists(primaryPath)) {
-			const firstBackup = backupPaths[0];
-			if (await adapter.exists(firstBackup)) {
-				await adapter.remove(firstBackup);
-			}
-			await adapter.copy(primaryPath, firstBackup);
-		}
-	}
-
 	private async savePluginDataSafely() {
-		const primaryPath = this.getPluginDataPath();
-		const diskData = await this.loadBestAvailablePluginData();
+		const diskData = await this.getDataStore().loadBestAvailable();
 		if (diskData.sourcePath) {
-			this.mergePluginData(diskData.data);
+			this.data = this.getDataStore().merge(this.data, diskData.data);
+			this.syncTodayHistory();
 		}
-
-		this.data = this.normalizeLoadedData(this.data);
-		const serialized = JSON.stringify(this.data, null, 2);
-
-		await this.rotateBackupFiles();
-
-		const hasAnyBackup = await Promise.all(this.getBackupPaths().map((path) => this.app.vault.adapter.exists(path)))
-			.then((results) => results.some(Boolean));
-		const primaryExists = await this.app.vault.adapter.exists(primaryPath);
-
-		// Allow initial bootstrap writes when no file exists yet; otherwise keep a backup before replacing primary.
-		if (!hasAnyBackup && primaryExists) {
-			await this.app.vault.adapter.copy(primaryPath, this.getBackupPaths()[0]);
-		}
-
-		await this.app.vault.adapter.write(primaryPath, serialized);
+		await this.getDataStore().saveSafely(this.data);
 	}
 
 	// ── Webhook ───────────────────────────────────────────────────────────
@@ -1199,7 +960,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		try {
 			const sent = await this.sendWebhook({ test: false });
 			if (!sent) return;
-			this.data.lastWebhookSentDate = this.data.todaysDate;
+			this.data.lastWebhookSentDate = this.data.activeDay.date;
 			this.markDirty({ refreshSidebar: true });
 			await this.flushSave();
 		} finally {
@@ -1226,7 +987,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 					event: "daily_word_goal_reached",
 					goal: this.settings.dailyGoal,
 					actual: this.todaysTotal(),
-					date: this.data.todaysDate,
+					date: this.data.activeDay.date,
 					timestamp: new Date().toISOString(),
 					test,
 				}),
