@@ -25,6 +25,7 @@ import {
 	type DailyRecord,
 	updateFileProgress,
 } from "./src/daily-progress";
+import { setTrackedEditorPath } from "./src/editor-cache";
 import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ const DEFAULT_SETTINGS: WordGoalSettings = {
 
 const PLUGIN_DATA_VERSION = 2;
 const BACKUP_FILE_COUNT = 3;
+const DEBUG_OBSERVATION_DIAGNOSTICS = false;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -216,6 +218,11 @@ function isWritingDay(record: DailyRecord): boolean {
 
 function isGoalMetDay(record: DailyRecord): boolean {
 	return record.goalMet === true;
+}
+
+function logObservationDiagnostic(event: string, details: Record<string, unknown>) {
+	if (!DEBUG_OBSERVATION_DIAGNOSTICS) return;
+	console.debug(`[word-goal][main] ${event}`, details);
 }
 
 function yearMax(history: Record<string, DailyRecord>, year: number): number {
@@ -462,12 +469,10 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	}
 
 	private resolveMarkdownViewForEditor(editor: Editor): MarkdownView | null {
-		const path = this.filePathByEditor.get(editor);
-		if (!path) return null;
 		const leaves = this.app.workspace.getLeavesOfType("markdown");
 		for (const leaf of leaves) {
 			const view = leaf.view;
-			if (view instanceof MarkdownView && view.file?.path === path && view.editor === editor) {
+			if (view instanceof MarkdownView && view.file && view.editor === editor) {
 				return view;
 			}
 		}
@@ -480,24 +485,37 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		}
 	}
 
-	private observeFileWords(file: TFile, words: number, observedAt = Date.now()) {
+	private observeFileWords(file: TFile, words: number, source: string, observedAt = Date.now()) {
 		this.ensureCurrentDay();
 		const path = file.path;
 		const previousWords = this.lastObservedWordsByPath.get(path);
 		const existing = this.data.activeDay.files[path];
+		// For a file first seen today, the current size is the baseline unless we already
+		// observed an earlier count for that same path in this session.
+		const baselineOverride = existing ? undefined : previousWords;
+		logObservationDiagnostic("observe-file-words", {
+			path,
+			source,
+			words,
+			observedAt,
+			previousWords,
+			existingBaselineWords: existing?.baselineWords,
+			existingLatestWords: existing?.latestWords,
+			baselineOverride,
+		});
 		this.data.activeDay = updateFileProgress(
 			this.data.activeDay,
 			todayKey(),
 			path,
 			words,
 			observedAt,
-			existing ? undefined : previousWords
+			baselineOverride
 		);
 		this.lastObservedWordsByPath.set(path, words);
 	}
 
-	private primeFileWords(file: TFile, words: number) {
-		this.observeFileWords(file, words, Date.now());
+	private primeFileWords(file: TFile, words: number, source = "prime-file-words") {
+		this.observeFileWords(file, words, source, Date.now());
 	}
 
 	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
@@ -507,7 +525,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const file = view.file;
 		if (!file) return;
 		if (!this.hasCompletedInitialHydration) return;
-		this.primeFileWords(file, this.countEditorWords(file, view.editor));
+		this.primeFileWords(file, this.countEditorWords(file, view.editor), "initialize-snapshot-from-leaf");
 	}
 
 	private initializeOpenViewSnapshots() {
@@ -523,8 +541,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (!(view instanceof MarkdownView) || !view.file) continue;
-			this.filePathByEditor.set(view.editor, view.file.path);
-			this.editorByFilePath.set(view.file.path, view.editor);
+			setTrackedEditorPath(this.filePathByEditor, this.editorByFilePath, view.editor, view.file.path);
 		}
 	}
 
@@ -554,16 +571,15 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
 
-		if (!this.filePathByEditor.has(editor)) return;
-
 		const view = this.resolveMarkdownViewForEditor(editor);
 		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
+		setTrackedEditorPath(this.filePathByEditor, this.editorByFilePath, editor, file.path);
 
 		const words = this.countEditorWords(file, editor);
 		if (this.lastObservedWordsByPath.get(file.path) === words && this.data.activeDay.files[file.path]?.latestWords === words) return;
 
-		this.observeFileWords(file, words);
+		this.observeFileWords(file, words, "editor-change");
 		this.syncTodayHistory();
 		this.markDirty({ refreshSidebar: true });
 		this.scheduleSave();
@@ -579,11 +595,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (liveEditor) {
 			const liveWords = this.countEditorWords(file, liveEditor);
 			if (this.lastObservedWordsByPath.get(file.path) === liveWords && this.data.activeDay.files[file.path]?.latestWords === liveWords) return;
-			this.observeFileWords(file, liveWords);
+			this.observeFileWords(file, liveWords, "vault-modify-live-editor");
 		} else {
 			const words = await this.countStoredFileWords(file);
 			if (this.lastObservedWordsByPath.get(file.path) === words && this.data.activeDay.files[file.path]?.latestWords === words) return;
-			this.observeFileWords(file, words);
+			this.observeFileWords(file, words, "vault-modify-stored-file");
 		}
 		this.syncTodayHistory();
 		this.markDirty({ refreshSidebar: true });
@@ -604,8 +620,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const editor = this.editorByFilePath.get(oldPath);
 		if (editor) {
 			this.editorByFilePath.delete(oldPath);
-			this.editorByFilePath.set(file.path, editor);
-			this.filePathByEditor.set(editor, file.path);
+			setTrackedEditorPath(this.filePathByEditor, this.editorByFilePath, editor, file.path);
 		}
 		this.syncTodayHistory();
 		this.markDirty({ refreshSidebar: true });
@@ -666,6 +681,13 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		try {
 			const incoming = await this.getDataStore().readAndValidate(path);
 			if (!incoming) return;
+			logObservationDiagnostic("merge-plugin-data-from-disk", {
+				path,
+				previousMtime: this.pluginDataMtime,
+				incomingMtime: stat.mtime,
+				incomingActiveDayDate: incoming.activeDay.date,
+				incomingTrackedFiles: Object.keys(incoming.activeDay.files).length,
+			});
 			this.data = this.getDataStore().merge(this.data, incoming);
 			this.syncTodayHistory();
 			this.pluginDataMtime = stat.mtime;

@@ -34,6 +34,13 @@ type AdapterLike = {
 	stat(path: string): Promise<{ mtime: number } | null>;
 };
 
+const DEBUG_PLUGIN_DATA_DIAGNOSTICS = false;
+
+function logPluginDataDiagnostic(event: string, details: Record<string, unknown>) {
+	if (!DEBUG_PLUGIN_DATA_DIAGNOSTICS) return;
+	console.debug(`[word-goal][plugin-data] ${event}`, details);
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -67,17 +74,27 @@ function migrateLegacyActiveDay<TSettings>(loaded: LegacyShape<TSettings> | null
 	const activeDay = createEmptyActiveDay(legacyDate);
 	for (const [path, snapshot] of Object.entries(loaded?.todaysWordCount ?? {})) {
 		if (!snapshot || typeof snapshot !== "object") continue;
-		const baselineWords = typeof snapshot.initial === "number" && Number.isFinite(snapshot.initial) ? snapshot.initial : 0;
 		const latestCandidate = typeof snapshot.current === "number" && Number.isFinite(snapshot.current)
 			? snapshot.current
 			: typeof snapshot.peak === "number" && Number.isFinite(snapshot.peak)
 				? snapshot.peak
-				: baselineWords;
+				: 0;
+		const baselineWords = typeof snapshot.initial === "number" && Number.isFinite(snapshot.initial)
+			? snapshot.initial
+			: latestCandidate;
 		activeDay.files[path] = {
 			baselineWords,
 			latestWords: Math.max(baselineWords, latestCandidate),
 			latestObservedAt: 0,
 		};
+		logPluginDataDiagnostic("migrate-legacy-file-progress", {
+			path,
+			initial: snapshot.initial,
+			peak: snapshot.peak,
+			current: snapshot.current,
+			baselineWords,
+			latestWords: activeDay.files[path].latestWords,
+		});
 	}
 	return legacyDate === today ? activeDay : createEmptyActiveDay(today);
 }

@@ -15,6 +15,13 @@ export interface DailyRecord {
 	updatedAt?: number;
 }
 
+const DEBUG_PROGRESS_DIAGNOSTICS = false;
+
+function logProgressDiagnostic(event: string, details: Record<string, unknown>) {
+	if (!DEBUG_PROGRESS_DIAGNOSTICS) return;
+	console.debug(`[word-goal][daily-progress] ${event}`, details);
+}
+
 export function createEmptyActiveDay(date: string): ActiveDayData {
 	return { date, files: {} };
 }
@@ -26,12 +33,12 @@ export function normalizeActiveDay(date: string, value?: Partial<ActiveDayData> 
 	};
 	for (const [path, file] of Object.entries(value?.files ?? {})) {
 		if (!file || typeof file !== "object") continue;
-		const baselineWords = typeof file.baselineWords === "number" && Number.isFinite(file.baselineWords)
-			? file.baselineWords
-			: 0;
 		const latestCandidate = typeof file.latestWords === "number" && Number.isFinite(file.latestWords)
 			? file.latestWords
-			: baselineWords;
+			: 0;
+		const baselineWords = typeof file.baselineWords === "number" && Number.isFinite(file.baselineWords)
+			? file.baselineWords
+			: latestCandidate;
 		normalized.files[path] = {
 			baselineWords,
 			latestWords: Math.max(baselineWords, latestCandidate),
@@ -39,6 +46,13 @@ export function normalizeActiveDay(date: string, value?: Partial<ActiveDayData> 
 				? file.latestObservedAt
 				: 0,
 		};
+		logProgressDiagnostic("normalize-file-progress", {
+			path,
+			rawBaselineWords: (file as Partial<ActiveDayFileProgress>).baselineWords,
+			rawLatestWords: (file as Partial<ActiveDayFileProgress>).latestWords,
+			baselineWords,
+			latestWords: normalized.files[path].latestWords,
+		});
 	}
 	return normalized;
 }
@@ -63,6 +77,13 @@ export function updateFileProgress(
 			latestWords: normalizedWords,
 			latestObservedAt: observedAt,
 		};
+		logProgressDiagnostic("create-file-progress", {
+			path,
+			words: normalizedWords,
+			observedAt,
+			baselineOverride,
+			baselineWords,
+		});
 		return next;
 	}
 	next.files[path] = {
@@ -70,7 +91,30 @@ export function updateFileProgress(
 		latestWords: normalizedWords,
 		latestObservedAt: Math.max(existing.latestObservedAt, observedAt),
 	};
+	logProgressDiagnostic("update-file-progress", {
+		path,
+		words: normalizedWords,
+		observedAt,
+		existingBaselineWords: existing.baselineWords,
+		existingLatestWords: existing.latestWords,
+		nextLatestWords: next.files[path].latestWords,
+	});
 	return next;
+}
+
+function chooseMergedBaseline(local: ActiveDayFileProgress, incoming: ActiveDayFileProgress): number {
+	const localLooksLikePartial = local.baselineWords === 0 && local.latestWords === incoming.latestWords && incoming.baselineWords > 0;
+	const incomingLooksLikePartial = incoming.baselineWords === 0 && incoming.latestWords === local.latestWords && local.baselineWords > 0;
+	const localLooksLikeEmptySnapshot = local.baselineWords === 0 && local.latestWords === 0 && incoming.baselineWords > 0;
+	const incomingLooksLikeEmptySnapshot = incoming.baselineWords === 0 && incoming.latestWords === 0 && local.baselineWords > 0;
+
+	if (localLooksLikePartial || localLooksLikeEmptySnapshot) {
+		return incoming.baselineWords;
+	}
+	if (incomingLooksLikePartial || incomingLooksLikeEmptySnapshot) {
+		return local.baselineWords;
+	}
+	return Math.min(local.baselineWords, incoming.baselineWords);
 }
 
 export function mergeFileProgress(
@@ -82,8 +126,15 @@ export function mergeFileProgress(
 	const localTimestamp = local.latestObservedAt ?? 0;
 	const incomingTimestamp = incoming.latestObservedAt ?? 0;
 	const latest = incomingTimestamp > localTimestamp ? incoming.latestWords : local.latestWords;
+	const baselineWords = chooseMergedBaseline(local, incoming);
+	logProgressDiagnostic("merge-file-progress", {
+		local,
+		incoming,
+		baselineWords,
+		latestWords: Math.max(0, latest),
+	});
 	return {
-		baselineWords: Math.min(local.baselineWords, incoming.baselineWords),
+		baselineWords,
 		latestWords: Math.max(0, latest),
 		latestObservedAt: Math.max(localTimestamp, incomingTimestamp),
 	};

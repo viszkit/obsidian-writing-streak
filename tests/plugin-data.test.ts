@@ -22,6 +22,28 @@ test("legacy todaysWordCount migrates into activeDay", () => {
 	assert.equal(data.history["2026-04-03"].goalMet, false);
 });
 
+test("legacy migration uses current words as baseline when initial is missing", () => {
+	const data = normalizePluginData({
+		todaysDate: "2026-04-04",
+		todaysWordCount: {
+			"note.md": { current: 2000 },
+		},
+	}, defaultSettings, "2026-04-04", 2);
+	assert.equal(data.activeDay.files["note.md"].baselineWords, 2000);
+	assert.equal(data.activeDay.files["note.md"].latestWords, 2000);
+});
+
+test("legacy migration uses peak words as baseline when initial and current are missing", () => {
+	const data = normalizePluginData({
+		todaysDate: "2026-04-04",
+		todaysWordCount: {
+			"note.md": { peak: 2000 },
+		},
+	}, defaultSettings, "2026-04-04", 2);
+	assert.equal(data.activeDay.files["note.md"].baselineWords, 2000);
+	assert.equal(data.activeDay.files["note.md"].latestWords, 2000);
+});
+
 test("history merge prefers newer updated records", () => {
 	const local = normalizePluginData({
 		history: { "2026-04-03": { totalWords: 100, goalMet: false, updatedAt: 10 } },
