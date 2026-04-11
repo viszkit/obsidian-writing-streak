@@ -26,6 +26,7 @@ import {
 	updateFileProgress,
 } from "./src/daily-progress";
 import { setTrackedEditorPath } from "./src/editor-cache";
+import { resolveInitialSnapshotWords } from "./src/initial-snapshot";
 import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -363,7 +364,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
 				this.refreshMarkdownEditorCache();
-				this.initializeSnapshotFromLeaf(leaf);
+				void this.initializeSnapshotFromLeaf(leaf).catch((err) => console.error("Failed to initialize snapshot from active leaf:", err));
 				this.updateStatusBar();
 			})
 		);
@@ -518,19 +519,30 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.observeFileWords(file, words, source, Date.now());
 	}
 
-	private initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
+	private async initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
 		if (!leaf) return;
 		const view = leaf.view;
 		if (!(view instanceof MarkdownView)) return;
 		const file = view.file;
 		if (!file) return;
 		if (!this.hasCompletedInitialHydration) return;
-		this.primeFileWords(file, this.countEditorWords(file, view.editor), "initialize-snapshot-from-leaf");
+		const path = file.path;
+		const initialSessionWords = this.lastObservedWordsByPath.get(path);
+		const initialLatestObservedAt = this.data.activeDay.files[path]?.latestObservedAt;
+		const editorWords = this.countEditorWords(file, view.editor);
+		const storedWords = editorWords === 0 ? await this.countStoredFileWords(file) : editorWords;
+		if (
+			this.lastObservedWordsByPath.get(path) !== initialSessionWords ||
+			this.data.activeDay.files[path]?.latestObservedAt !== initialLatestObservedAt
+		) {
+			return;
+		}
+		this.primeFileWords(file, resolveInitialSnapshotWords(editorWords, storedWords), "initialize-snapshot-from-leaf");
 	}
 
 	private initializeOpenViewSnapshots() {
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			this.initializeSnapshotFromLeaf(leaf);
+			void this.initializeSnapshotFromLeaf(leaf).catch((err) => console.error("Failed to initialize snapshot from open view:", err));
 		}
 	}
 
