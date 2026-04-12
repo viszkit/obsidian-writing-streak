@@ -25,7 +25,7 @@ import {
 	type DailyRecord,
 	updateFileProgress,
 } from "./src/daily-progress";
-import { setTrackedEditorPath } from "./src/editor-cache";
+import { findTrackedValueByPath, setTrackedEditorPath } from "./src/editor-cache";
 import { resolveInitialSnapshotWords } from "./src/initial-snapshot";
 import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
 
@@ -365,6 +365,22 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			this.app.workspace.on("active-leaf-change", (leaf) => {
 				this.refreshMarkdownEditorCache();
 				void this.initializeSnapshotFromLeaf(leaf).catch((err) => console.error("Failed to initialize snapshot from active leaf:", err));
+				this.updateStatusBar();
+			})
+		);
+
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => {
+				if (!(file instanceof TFile) || file.extension !== "md") return;
+				this.refreshMarkdownEditorCache();
+				const leaf = findTrackedValueByPath(
+					this.app.workspace.getLeavesOfType("markdown").map((workspaceLeaf) => {
+						const view = workspaceLeaf.view;
+						return view instanceof MarkdownView ? workspaceLeaf : null;
+					}).filter((workspaceLeaf): workspaceLeaf is WorkspaceLeaf => workspaceLeaf !== null),
+					file.path
+				);
+				void this.initializeSnapshotFromLeaf(leaf).catch((err) => console.error("Failed to initialize snapshot from file open:", err));
 				this.updateStatusBar();
 			})
 		);

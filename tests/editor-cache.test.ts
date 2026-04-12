@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setTrackedEditorPath } from "../src/editor-cache";
+import { findTrackedValueByPath, setTrackedEditorPath } from "../src/editor-cache";
 
 test("reusing an editor for a new path clears the stale reverse mapping", () => {
 	const editorA = { id: "a" };
@@ -16,4 +16,12 @@ test("reusing an editor for a new path clears the stale reverse mapping", () => 
 	assert.equal(editorByFilePath.get("old.md"), undefined);
 	assert.equal(editorByFilePath.get("new.md"), editorA);
 	assert.equal(editorByFilePath.get("other.md"), editorB);
+});
+
+test("findTrackedValueByPath returns the currently opened file match", () => {
+	const first = { id: "first", file: { path: "old.md" } };
+	const second = { id: "second", file: { path: "today.md" } };
+
+	assert.equal(findTrackedValueByPath([first, second], "today.md"), second);
+	assert.equal(findTrackedValueByPath([first, second], "missing.md"), null);
 });

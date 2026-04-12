@@ -17,3 +17,15 @@ export function setTrackedEditorPath<TEditor>(
 	filePathByEditor.set(editor, path);
 	editorByFilePath.set(path, editor);
 }
+
+export function findTrackedValueByPath<TValue extends { file?: { path: string } | null }>(
+	values: TValue[],
+	path: string
+): TValue | null {
+	for (const value of values) {
+		if (value.file?.path === path) {
+			return value;
+		}
+	}
+	return null;
+}
