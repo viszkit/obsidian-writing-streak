@@ -26,8 +26,9 @@ import {
 	updateFileProgress,
 } from "./src/daily-progress";
 import { findTrackedValueByPath, setTrackedEditorPath } from "./src/editor-cache";
-import { resolveInitialSnapshotWords } from "./src/initial-snapshot";
+import { PathInFlightGate } from "./src/path-inflight";
 import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
+import { applyStoredBaselineSnapshot } from "./src/startup-progress";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -313,6 +314,7 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private filePathByEditor = new Map<Editor, string>();
 	private editorByFilePath = new Map<string, Editor>();
 	private lastObservedWordsByPath = new Map<string, number>();
+	private fileInitializationGate = new PathInFlightGate();
 	private hasCompletedInitialHydration = false;
 	private celebrateGoalUntil = 0;
 	private celebrateGoalTimer: number | null = null;
@@ -531,8 +533,58 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		this.lastObservedWordsByPath.set(path, words);
 	}
 
-	private primeFileWords(file: TFile, words: number, source = "prime-file-words") {
-		this.observeFileWords(file, words, source, Date.now());
+	private finalizeProgressInitialization() {
+		this.syncTodayHistory();
+		this.markDirty({ refreshSidebar: true });
+		this.scheduleSave();
+		this.refreshUi();
+		this.maybeCelebrateGoal();
+	}
+
+	private async ensureFileProgressInitializedFromStorage(file: TFile, source: string, liveWords?: number): Promise<boolean> {
+		this.ensureCurrentDay();
+		const path = file.path;
+		const dateKey = todayKey();
+		let changed = false;
+
+		await this.fileInitializationGate.run(path, async () => {
+			const storedWords = await this.countStoredFileWords(file);
+			const result = applyStoredBaselineSnapshot(
+				this.data.activeDay,
+				dateKey,
+				path,
+				storedWords,
+				Date.now(),
+				liveWords
+			);
+			this.lastObservedWordsByPath.set(path, result.nextLastObservedWords);
+			if (!result.initialized && !result.repaired) {
+				logObservationDiagnostic("skip-storage-backed-initialization", {
+					path,
+					source,
+					storedWords,
+					liveWords,
+					existingBaselineWords: this.data.activeDay.files[path]?.baselineWords,
+					existingLatestWords: this.data.activeDay.files[path]?.latestWords,
+				});
+				return;
+			}
+			this.data.activeDay = result.activeDay;
+			changed = true;
+			logObservationDiagnostic("apply-storage-backed-initialization", {
+				path,
+				source,
+				storedWords,
+				liveWords,
+				initialized: result.initialized,
+				repaired: result.repaired,
+				baselineWords: this.data.activeDay.files[path]?.baselineWords,
+				latestWords: this.data.activeDay.files[path]?.latestWords,
+				nextLastObservedWords: result.nextLastObservedWords,
+			});
+		});
+
+		return changed;
 	}
 
 	private async initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
@@ -542,18 +594,14 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		const file = view.file;
 		if (!file) return;
 		if (!this.hasCompletedInitialHydration) return;
-		const path = file.path;
-		const initialSessionWords = this.lastObservedWordsByPath.get(path);
-		const initialLatestObservedAt = this.data.activeDay.files[path]?.latestObservedAt;
-		const editorWords = this.countEditorWords(file, view.editor);
-		const storedWords = editorWords === 0 ? await this.countStoredFileWords(file) : editorWords;
-		if (
-			this.lastObservedWordsByPath.get(path) !== initialSessionWords ||
-			this.data.activeDay.files[path]?.latestObservedAt !== initialLatestObservedAt
-		) {
-			return;
+		try {
+			const changed = await this.ensureFileProgressInitializedFromStorage(file, "initialize-snapshot-from-leaf");
+			if (changed) {
+				this.finalizeProgressInitialization();
+			}
+		} catch (err) {
+			console.error("Failed to initialize snapshot from stored file:", err);
 		}
-		this.primeFileWords(file, resolveInitialSnapshotWords(editorWords, storedWords), "initialize-snapshot-from-leaf");
 	}
 
 	private initializeOpenViewSnapshots() {
@@ -606,6 +654,16 @@ export default class WordGoalWebhookPlugin extends Plugin {
 
 		const words = this.countEditorWords(file, editor);
 		if (this.lastObservedWordsByPath.get(file.path) === words && this.data.activeDay.files[file.path]?.latestWords === words) return;
+		if (!this.data.activeDay.files[file.path]) {
+			void this.ensureFileProgressInitializedFromStorage(file, "editor-change", words)
+				.then((changed) => {
+					if (changed) {
+						this.finalizeProgressInitialization();
+					}
+				})
+				.catch((err) => console.error("Failed to initialize file progress from editor change:", err));
+			return;
+		}
 
 		this.observeFileWords(file, words, "editor-change");
 		this.syncTodayHistory();
@@ -623,10 +681,24 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		if (liveEditor) {
 			const liveWords = this.countEditorWords(file, liveEditor);
 			if (this.lastObservedWordsByPath.get(file.path) === liveWords && this.data.activeDay.files[file.path]?.latestWords === liveWords) return;
+			if (!this.data.activeDay.files[file.path]) {
+				const changed = await this.ensureFileProgressInitializedFromStorage(file, "vault-modify-live-editor", liveWords);
+				if (changed) {
+					this.finalizeProgressInitialization();
+				}
+				return;
+			}
 			this.observeFileWords(file, liveWords, "vault-modify-live-editor");
 		} else {
 			const words = await this.countStoredFileWords(file);
 			if (this.lastObservedWordsByPath.get(file.path) === words && this.data.activeDay.files[file.path]?.latestWords === words) return;
+			if (!this.data.activeDay.files[file.path]) {
+				const changed = await this.ensureFileProgressInitializedFromStorage(file, "vault-modify-stored-file", words);
+				if (changed) {
+					this.finalizeProgressInitialization();
+				}
+				return;
+			}
 			this.observeFileWords(file, words, "vault-modify-stored-file");
 		}
 		this.syncTodayHistory();

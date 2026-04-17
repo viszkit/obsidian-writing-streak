@@ -19,3 +19,9 @@ const editor_cache_1 = require("../src/editor-cache");
     strict_1.default.equal(editorByFilePath.get("new.md"), editorA);
     strict_1.default.equal(editorByFilePath.get("other.md"), editorB);
 });
+(0, node_test_1.default)("findTrackedValueByPath returns the currently opened file match", () => {
+    const first = { id: "first", file: { path: "old.md" } };
+    const second = { id: "second", file: { path: "today.md" } };
+    strict_1.default.equal((0, editor_cache_1.findTrackedValueByPath)([first, second], "today.md"), second);
+    strict_1.default.equal((0, editor_cache_1.findTrackedValueByPath)([first, second], "missing.md"), null);
+});

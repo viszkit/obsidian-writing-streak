@@ -3,10 +3,7 @@ function normalizeWordCount(words: number): number {
 }
 
 export function resolveInitialSnapshotWords(editorWords: number, storedWords: number): number {
-	const normalizedEditorWords = normalizeWordCount(editorWords);
+	void editorWords;
 	const normalizedStoredWords = normalizeWordCount(storedWords);
-	if (normalizedEditorWords === 0 && normalizedStoredWords > 0) {
-		return normalizedStoredWords;
-	}
-	return normalizedEditorWords;
+	return normalizedStoredWords;
 }
