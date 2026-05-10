@@ -16,6 +16,7 @@
   "scripts": {
     "build": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node",
     "dev": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node --watch",
+    "deploy:runtime": "sh scripts/deploy-runtime.sh",
     "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/**/*.test.js"
   },
   "devDependencies": {

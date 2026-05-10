@@ -28,6 +28,7 @@ import {
 import { findTrackedValueByPath, setTrackedEditorPath } from "./src/editor-cache";
 import { PathInFlightGate } from "./src/path-inflight";
 import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
+import { uniqueOpenMarkdownFilePaths } from "./src/startup-open-files";
 import { applyStoredBaselineSnapshot } from "./src/startup-progress";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -453,7 +454,11 @@ export default class WordGoalWebhookPlugin extends Plugin {
 			this.data.activeDay = createEmptyActiveDay(today);
 			this.lastObservedWordsByPath.clear();
 			if (this.hasCompletedInitialHydration) {
-				this.initializeOpenViewSnapshots();
+				void this.initializeOpenViewSnapshots()
+					.then((changed) => {
+						if (changed) this.finalizeProgressInitialization();
+					})
+					.catch((err) => console.error("Failed to initialize open view snapshots:", err));
 			}
 		}
 		this.syncTodayHistory();
@@ -587,27 +592,39 @@ export default class WordGoalWebhookPlugin extends Plugin {
 		return changed;
 	}
 
-	private async initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null) {
-		if (!leaf) return;
+	private async initializeSnapshotFromLeaf(leaf: WorkspaceLeaf | null): Promise<boolean> {
+		if (!leaf) return false;
 		const view = leaf.view;
-		if (!(view instanceof MarkdownView)) return;
+		if (!(view instanceof MarkdownView)) return false;
 		const file = view.file;
-		if (!file) return;
-		if (!this.hasCompletedInitialHydration) return;
+		if (!file) return false;
+		if (!this.hasCompletedInitialHydration) return false;
 		try {
-			const changed = await this.ensureFileProgressInitializedFromStorage(file, "initialize-snapshot-from-leaf");
-			if (changed) {
-				this.finalizeProgressInitialization();
-			}
+			return await this.ensureFileProgressInitializedFromStorage(file, "initialize-snapshot-from-leaf");
 		} catch (err) {
 			console.error("Failed to initialize snapshot from stored file:", err);
+			return false;
 		}
 	}
 
-	private initializeOpenViewSnapshots() {
+	private async initializeOpenViewSnapshots(): Promise<boolean> {
+		let changed = false;
+		const leavesByPath = new Map<string, WorkspaceLeaf>();
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			void this.initializeSnapshotFromLeaf(leaf).catch((err) => console.error("Failed to initialize snapshot from open view:", err));
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView) || !view.file) continue;
+			leavesByPath.set(view.file.path, leaf);
 		}
+
+		const paths = uniqueOpenMarkdownFilePaths(
+			Array.from(leavesByPath.keys()).map((path) => ({ path }))
+		);
+		for (const path of paths) {
+			const leaf = leavesByPath.get(path);
+			if (!leaf) continue;
+			changed = (await this.initializeSnapshotFromLeaf(leaf)) || changed;
+		}
+		return changed;
 	}
 
 	private refreshMarkdownEditorCache() {
@@ -633,12 +650,13 @@ export default class WordGoalWebhookPlugin extends Plugin {
 	private async handleLayoutReady() {
 		await this.reloadSyncedDataAndRefreshUi();
 		this.hasCompletedInitialHydration = true;
-		this.initializeOpenViewSnapshots();
+		const initialized = await this.initializeOpenViewSnapshots();
+		if (initialized) {
+			this.finalizeProgressInitialization();
+			return;
+		}
 		this.syncTodayHistory();
-		this.markDirty({ refreshSidebar: true });
-		this.scheduleSave();
 		this.refreshUi();
-		await this.activateSidebar();
 	}
 
 	// ── Word tracking (fast, synchronous, runs on every keystroke) ───────

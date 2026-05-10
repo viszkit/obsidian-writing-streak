@@ -31,7 +31,7 @@ Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins br
 
 ## Usage
 
-The plugin opens a sidebar heatmap on startup. Each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
+The plugin tracks your current daily word count in the status bar. The sidebar heatmap can be opened when needed, and each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
 
 Commands:
 
@@ -72,7 +72,10 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
 ```bash
 npm install
 npm run build
+npm run deploy:runtime
 ```
+
+`npm run deploy:runtime` copies only `main.js`, `manifest.json`, and `styles.css` into the local Obsidian plugin folder and removes development-only files from that installed copy. Set `OBSIDIAN_PLUGIN_DIR` to deploy to a different vault.
 
 Create releases by attaching `main.js`, `manifest.json`, and `styles.css` to a GitHub release whose tag matches the manifest version.
 
