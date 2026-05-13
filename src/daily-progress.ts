@@ -57,7 +57,7 @@ export function normalizeActiveDay(date: string, value?: Partial<ActiveDayData> 
 	return normalized;
 }
 
-export function updateFileProgress(
+export function recordFileObservation(
 	activeDay: ActiveDayData,
 	dateKey: string,
 	path: string,
@@ -101,6 +101,8 @@ export function updateFileProgress(
 	});
 	return next;
 }
+
+export const updateFileProgress = recordFileObservation;
 
 function chooseMergedBaseline(local: ActiveDayFileProgress, incoming: ActiveDayFileProgress): number {
 	const localLooksLikePartial = local.baselineWords === 0 && local.latestWords === incoming.latestWords && incoming.baselineWords > 0;

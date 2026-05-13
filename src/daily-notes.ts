@@ -1,0 +1,110 @@
+import { App, TFile, moment, normalizePath } from "obsidian";
+
+interface DailyNotePathConfig {
+	format: string;
+	folder: string;
+}
+
+function getCoreDailyNotePathConfig(app: App): DailyNotePathConfig | null {
+	const internalPlugins = (app as App & {
+		internalPlugins?: {
+			getPluginById?: (id: string) => unknown;
+			plugins?: Record<string, unknown>;
+		};
+	}).internalPlugins;
+	const plugin = internalPlugins?.getPluginById?.("daily-notes")
+		?? internalPlugins?.plugins?.["daily-notes"];
+	const instance = (plugin as { instance?: { options?: unknown }; options?: unknown } | undefined)?.instance;
+	const options = (instance?.options
+		?? (plugin as { options?: unknown } | undefined)?.options) as { format?: unknown; folder?: unknown } | undefined;
+
+	if (typeof options?.format !== "string" || options.format.trim().length === 0) {
+		return null;
+	}
+
+	return {
+		format: options.format.trim(),
+		folder: typeof options.folder === "string" ? options.folder.trim() : "",
+	};
+}
+
+async function getPeriodicDailyNotePathConfig(app: App): Promise<DailyNotePathConfig | null> {
+	const plugins = (app as App & {
+		plugins?: {
+			plugins?: Record<string, unknown>;
+		};
+	}).plugins;
+	const plugin = plugins?.plugins?.["periodic-notes"] as
+		| { settings?: { daily?: { format?: unknown; folder?: unknown } } }
+		| undefined;
+	const pluginDailySettings = plugin?.settings?.daily;
+
+	if (typeof pluginDailySettings?.format === "string" && pluginDailySettings.format.trim().length > 0) {
+		return {
+			format: pluginDailySettings.format.trim(),
+			folder: typeof pluginDailySettings.folder === "string" ? pluginDailySettings.folder.trim() : "",
+		};
+	}
+
+	try {
+		const path = `${app.vault.configDir}/plugins/periodic-notes/data.json`;
+		const exists = await app.vault.adapter.exists(path);
+		if (!exists) return null;
+
+		const raw = await app.vault.adapter.read(path);
+		const parsed = JSON.parse(raw) as { daily?: { format?: unknown; folder?: unknown } };
+		if (typeof parsed.daily?.format !== "string" || parsed.daily.format.trim().length === 0) {
+			return null;
+		}
+
+		return {
+			format: parsed.daily.format.trim(),
+			folder: typeof parsed.daily.folder === "string" ? parsed.daily.folder.trim() : "",
+		};
+	} catch (err) {
+		console.error("Failed to read Periodic Notes settings:", err);
+		return null;
+	}
+}
+
+function buildDailyNotePathForDate(date: Date, config: DailyNotePathConfig): string | null {
+	if (config.format.trim().length === 0) return null;
+
+	const formatMoment = moment as unknown as (input: Date) => { format(format: string): string };
+	const formattedPath = formatMoment(date).format(config.format);
+	if (formattedPath.trim().length === 0) return null;
+
+	const combinedPath = config.folder
+		? normalizePath(`${config.folder}/${formattedPath}`)
+		: normalizePath(formattedPath);
+
+	return combinedPath.endsWith(".md") ? combinedPath : `${combinedPath}.md`;
+}
+
+export async function resolveDailyNotePathForDate(app: App, date: Date): Promise<string | null> {
+	const periodicConfig = await getPeriodicDailyNotePathConfig(app);
+	if (periodicConfig) {
+		return buildDailyNotePathForDate(date, periodicConfig);
+	}
+
+	const coreConfig = getCoreDailyNotePathConfig(app);
+	if (coreConfig) {
+		return buildDailyNotePathForDate(date, coreConfig);
+	}
+
+	return null;
+}
+
+export async function openDailyNoteForDate(app: App, date: Date): Promise<boolean> {
+	const path = await resolveDailyNotePathForDate(app, date);
+	if (!path) return false;
+
+	const file = app.vault.getAbstractFileByPath(path);
+	if (!(file instanceof TFile)) return false;
+
+	const leaf = app.workspace.getMostRecentLeaf(app.workspace.rootSplit)
+		?? app.workspace.getLeaf(false);
+	await leaf.openFile(file);
+	app.workspace.setActiveLeaf(leaf, { focus: true });
+	return true;
+}
