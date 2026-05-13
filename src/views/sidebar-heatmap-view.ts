@@ -34,6 +34,11 @@ export class SidebarHeatmapView extends ItemView {
 
 	refresh() {
 		const root = this.contentEl;
+		const shouldScrollToToday = this.shouldScrollToToday;
+		const previousRootScrollTop = shouldScrollToToday ? 0 : root.scrollTop;
+		const previousGridScrollTop = shouldScrollToToday
+			? 0
+			: root.querySelector<HTMLElement>(".wg-sb-grid-container")?.scrollTop ?? 0;
 		root.empty();
 		root.addClass("wg-sidebar");
 
@@ -133,11 +138,16 @@ export class SidebarHeatmapView extends ItemView {
 			}
 		}
 
-		if (this.shouldScrollToToday) {
+		if (shouldScrollToToday) {
 			this.shouldScrollToToday = false;
 			window.requestAnimationFrame(() => {
 				const todayCell = gridContainer.querySelector<HTMLElement>(".wg-day-today");
 				todayCell?.scrollIntoView({ block: "center", inline: "nearest" });
+			});
+		} else {
+			window.requestAnimationFrame(() => {
+				root.scrollTop = previousRootScrollTop;
+				gridContainer.scrollTop = previousGridScrollTop;
 			});
 		}
 
