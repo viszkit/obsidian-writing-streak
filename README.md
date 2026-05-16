@@ -12,22 +12,11 @@ Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin tha
 
 ## Installation
 
-### From community plugins
+Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins browser:
 
-Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins browser once the plugin has been approved and published.
-
-### Manual installation
-
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest GitHub release](https://github.com/viszkit/obsidian-writing-streak/releases).
-2. Create this folder in your vault:
-
-```text
-<vault>/.obsidian/plugins/word-goal-webhook/
-```
-
-3. Copy the three release files into that folder.
-4. Reload Obsidian.
-5. Enable **Writing Tracker Heatmap Streaks** under **Settings -> Community plugins**.
+1. Open **Settings -> Community plugins** in Obsidian.
+2. Browse or search for **Writing Tracker Heatmap Streaks**.
+3. Install and enable the plugin.
 
 ## Usage
 
@@ -38,7 +27,7 @@ Commands:
 - `Open writing heatmap`
 - `Open writing stats`
 - `Show today's word count`
-- `Import history from Daily Stats plugin`
+- `Import history from daily stats plugin`
 
 Settings:
 
@@ -55,7 +44,8 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
   "goal": 500,
   "actual": 512,
   "date": "2026-03-27",
-  "timestamp": "2026-03-27T14:23:01.000Z"
+  "timestamp": "2026-03-27T14:23:01.000Z",
+  "test": false
 }
 ```
 
