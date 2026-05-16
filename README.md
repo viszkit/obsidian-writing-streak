@@ -2,6 +2,8 @@
 
 Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin that tracks the new words you write each day, sends a webhook when you hit your goal, and shows your writing history in a compact heatmap sidebar with a detailed stats view.
 
+![Writing Tracker Heatmap Streaks heatmap view](heatmap.gif)
+
 ## Features
 
 - Track daily new words instead of total file length.
@@ -21,6 +23,8 @@ Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins br
 ## Usage
 
 The plugin tracks your current daily word count in the status bar. The sidebar heatmap can be opened when needed, and each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
+
+![Heatmap Detailed View](heatmap_details.png)
 
 Commands:
 
@@ -48,6 +52,7 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
   "test": false
 }
 ```
+![Plugin Settings](settings.png)
 
 ## Data and privacy
 
