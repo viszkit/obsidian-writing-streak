@@ -99,14 +99,16 @@ export class TrackingController {
 
 	handleActiveLeafChange(leaf: WorkspaceLeaf | null) {
 		this.refreshMarkdownEditorCache();
-		void this.finalizeSnapshotFromLeafIfChanged(leaf, "active leaf");
+		void this.finalizeSnapshotFromLeafIfChanged(leaf, "active leaf")
+			.catch((err) => console.error("Failed to initialize snapshot from active leaf:", err));
 	}
 
 	handleFileOpen(file: TFile) {
 		if (file.extension !== "md") return;
 		this.refreshMarkdownEditorCache();
 		const leaf = this.findMarkdownLeafByPath(file.path);
-		void this.finalizeSnapshotFromLeafIfChanged(leaf, "file open");
+		void this.finalizeSnapshotFromLeafIfChanged(leaf, "file open")
+			.catch((err) => console.error("Failed to initialize snapshot from opened file:", err));
 	}
 
 	async handleVaultModify(file: TFile): Promise<void> {
@@ -174,7 +176,8 @@ export class TrackingController {
 		if (result.changed) {
 			this.applyState(result.state);
 			if (this.hasCompletedInitialHydration) {
-				void this.finalizeOpenViewSnapshotsIfChanged("day rollover");
+				void this.finalizeOpenViewSnapshotsIfChanged("day rollover")
+					.catch((err) => console.error("Failed to initialize snapshots after day rollover:", err));
 			}
 		}
 	}
@@ -339,7 +342,8 @@ export class TrackingController {
 		}
 		this.openViewSnapshotRetryTimer = window.setTimeout(() => {
 			this.openViewSnapshotRetryTimer = null;
-			void this.finalizeOpenViewSnapshotsIfChanged("post-layout retry");
+			void this.finalizeOpenViewSnapshotsIfChanged("post-layout retry")
+				.catch((err) => console.error("Failed to initialize snapshots after layout retry:", err));
 		}, 1000);
 	}
 

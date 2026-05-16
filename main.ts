@@ -12,6 +12,23 @@ import { sendWebhook } from "./src/webhook";
 import { SidebarHeatmapView, VIEW_TYPE_HEATMAP } from "./src/views/sidebar-heatmap-view";
 import { DetailModal } from "./src/views/detail-modal";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseDailyStatsDayCounts(raw: string): Record<string, number> {
+	const parsed: unknown = JSON.parse(raw);
+	if (!isRecord(parsed) || !isRecord(parsed.dayCounts)) return {};
+
+	const dayCounts: Record<string, number> = {};
+	for (const [key, value] of Object.entries(parsed.dayCounts)) {
+		if (typeof value === "number" && Number.isFinite(value)) {
+			dayCounts[key] = value;
+		}
+	}
+	return dayCounts;
+}
+
 export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPluginApi {
 	data: PluginDataShape<WordGoalSettings> = {
 		version: PLUGIN_DATA_VERSION,
@@ -31,6 +48,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private trackingController: TrackingController | null = null;
 	private celebrateGoalUntil = 0;
 	private celebrateGoalTimer: number | null = null;
+	private visibilityDocument: Document | null = null;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -65,7 +83,11 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		);
 	}
 
-	async onload() {
+	onload() {
+		void this.loadPlugin().catch((err) => console.error("Failed to load Word Goal plugin:", err));
+	}
+
+	private async loadPlugin() {
 		await this.loadPluginData();
 		this.trackingController = this.createTrackingController();
 		this.todaysTotal();
@@ -116,7 +138,8 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		this.registerEvent(
 			this.app.vault.on("modify", (file) => {
 				if (!(file instanceof TFile)) return;
-				void this.tracker.handleVaultModify(file);
+				void this.tracker.handleVaultModify(file)
+					.catch((err) => console.error("Failed to handle vault modify:", err));
 			})
 		);
 
@@ -132,8 +155,10 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		this.registerInterval(window.setInterval(() => this.updateStatusBar(), 1000));
 		this.updateStatusBar();
 
+		const visibilityDocument = activeDocument;
+		this.visibilityDocument = visibilityDocument;
 		this.visibilityHandler = () => {
-			if (document.visibilityState === "hidden") {
+			if (visibilityDocument.visibilityState === "hidden") {
 				this.syncTodayHistory();
 				this.markDirty({ refreshSidebar: true });
 				void this.flushSave().catch((err) => console.error("Failed to flush plugin data on background:", err));
@@ -141,7 +166,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			}
 			void this.reloadSyncedDataAndRefreshUi().catch((err) => console.error("Failed to reload synced plugin data:", err));
 		};
-		document.addEventListener("visibilitychange", this.visibilityHandler);
+		visibilityDocument.addEventListener("visibilitychange", this.visibilityHandler);
 
 		this.app.workspace.onLayoutReady(() => {
 			void this.handleLayoutReady().catch((err) => console.error("Failed during layout-ready initialization:", err));
@@ -149,7 +174,8 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	onunload() {
-		document.removeEventListener("visibilitychange", this.visibilityHandler);
+		this.visibilityDocument?.removeEventListener("visibilitychange", this.visibilityHandler);
+		this.visibilityDocument = null;
 		if (this.celebrateGoalTimer !== null) {
 			window.clearTimeout(this.celebrateGoalTimer);
 			this.celebrateGoalTimer = null;
@@ -210,7 +236,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			this.webhookSendInFlightDate = this.data.activeDay.date;
 			this.triggerGoalCelebration();
 			new Notice(`🎉 You Hit ${this.settings.dailyGoal} Words Today!`);
-			void this.fireWebhook();
+			void this.fireWebhook().catch((err) => console.error("Failed to send goal webhook:", err));
 		}
 	}
 
@@ -274,7 +300,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			window.clearTimeout(this.saveTimer);
 		}
 		this.saveTimer = window.setTimeout(() => {
-			void this.flushSave();
+			void this.flushSave().catch((err) => console.error("Failed to flush scheduled plugin data save:", err));
 		}, 800);
 	}
 
@@ -319,8 +345,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 				return;
 			}
 			const raw = await adapter.read(path);
-			const dsData = JSON.parse(raw);
-			const dayCounts: Record<string, number> = dsData?.dayCounts ?? {};
+			const dayCounts = parseDailyStatsDayCounts(raw);
 
 			let imported = 0;
 			for (const [dsKey, words] of Object.entries(dayCounts)) {
@@ -367,11 +392,16 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	async activateSidebar() {
 		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_HEATMAP);
-		if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
+		if (existing.length) {
+			void this.app.workspace.revealLeaf(existing[0])
+				.catch((err) => console.error("Failed to reveal writing heatmap leaf:", err));
+			return;
+		}
 		const leaf = this.app.workspace.getRightLeaf(false);
 		if (leaf) {
 			await leaf.setViewState({ type: VIEW_TYPE_HEATMAP, active: true });
-			void this.app.workspace.revealLeaf(leaf);
+			void this.app.workspace.revealLeaf(leaf)
+				.catch((err) => console.error("Failed to reveal writing heatmap leaf:", err));
 		}
 	}
 

@@ -5,6 +5,10 @@ interface DailyNotePathConfig {
 	folder: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function getCoreDailyNotePathConfig(app: App): DailyNotePathConfig | null {
 	const internalPlugins = (app as App & {
 		internalPlugins?: {
@@ -52,14 +56,15 @@ async function getPeriodicDailyNotePathConfig(app: App): Promise<DailyNotePathCo
 		if (!exists) return null;
 
 		const raw = await app.vault.adapter.read(path);
-		const parsed = JSON.parse(raw) as { daily?: { format?: unknown; folder?: unknown } };
-		if (typeof parsed.daily?.format !== "string" || parsed.daily.format.trim().length === 0) {
+		const parsed: unknown = JSON.parse(raw);
+		const daily = isRecord(parsed) && isRecord(parsed.daily) ? parsed.daily : null;
+		if (typeof daily?.format !== "string" || daily.format.trim().length === 0) {
 			return null;
 		}
 
 		return {
-			format: parsed.daily.format.trim(),
-			folder: typeof parsed.daily.folder === "string" ? parsed.daily.folder.trim() : "",
+			format: daily.format.trim(),
+			folder: typeof daily.folder === "string" ? daily.folder.trim() : "",
 		};
 	} catch (err) {
 		console.error("Failed to read Periodic Notes settings:", err);

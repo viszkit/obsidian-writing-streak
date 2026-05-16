@@ -141,7 +141,7 @@ export function yearStats(history: Record<string, DailyRecord>, year: number): Y
 }
 
 export function getMonthlySums(history: Record<string, DailyRecord>, year: number): number[] {
-	const sums = new Array(12).fill(0);
+	const sums = Array.from({ length: 12 }, () => 0);
 	for (const [key, rec] of Object.entries(history)) {
 		if (!key.startsWith(`${year}-`)) continue;
 		sums[parseInt(key.slice(5, 7), 10) - 1] += rec.totalWords;

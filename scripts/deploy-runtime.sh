@@ -14,6 +14,4 @@ rm -rf \
 	"$plugin_dir/tsconfig.json" \
 	"$plugin_dir/.DS_Store"
 
-find "$plugin_dir" -maxdepth 1 -type f -name 'data.backup-* *.json' -delete
-
 printf 'Deployed runtime files to %s\n' "$plugin_dir"

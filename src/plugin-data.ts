@@ -28,9 +28,6 @@ type AdapterLike = {
 	exists(path: string): Promise<boolean>;
 	read(path: string): Promise<string>;
 	write(path: string, contents: string): Promise<void>;
-	copy(path: string, destination: string): Promise<void>;
-	rename(path: string, destination: string): Promise<void>;
-	remove(path: string): Promise<void>;
 	stat(path: string): Promise<{ mtime: number } | null>;
 };
 
@@ -100,11 +97,12 @@ function migrateLegacyActiveDay<TSettings>(loaded: LegacyShape<TSettings> | null
 }
 
 export function normalizePluginData<TSettings>(
-	loaded: LegacyShape<TSettings> | null | undefined,
+	loadedInput: unknown,
 	defaultSettings: TSettings,
 	today: string,
 	version: number
 ): PluginDataShape<TSettings> {
+	const loaded = isPlainObject(loadedInput) ? loadedInput as LegacyShape<TSettings> : null;
 	const settings = Object.assign({}, defaultSettings, isPlainObject(loaded?.settings) ? loaded?.settings : {});
 	const history: Record<string, DailyRecord> = {};
 	for (const [dateKey, record] of Object.entries(loaded?.history ?? {})) {
@@ -143,7 +141,6 @@ export class PluginDataStore<TSettings> {
 	constructor(
 		private readonly adapter: AdapterLike,
 		private readonly primaryPath: string,
-		private readonly backupPaths: string[],
 		private readonly defaultSettings: TSettings,
 		private readonly version: number,
 		private readonly getTodayKey: () => string
@@ -154,29 +151,16 @@ export class PluginDataStore<TSettings> {
 			if (!(await this.adapter.exists(path))) return null;
 			const raw = await this.adapter.read(path);
 			if (raw.trim().length === 0) return null;
-			const parsed = JSON.parse(raw) as LegacyShape<TSettings>;
+			const parsed: unknown = JSON.parse(raw);
 			return normalizePluginData(parsed, this.defaultSettings, this.getTodayKey(), this.version);
 		} catch {
 			return null;
 		}
 	}
 
-	async restorePrimaryFromBackup(path: string): Promise<boolean> {
-		const data = await this.readAndValidate(path);
-		if (!data) return false;
-		await this.adapter.write(this.primaryPath, JSON.stringify(data, null, 2));
-		return true;
-	}
-
 	async loadBestAvailable(): Promise<{ data: PluginDataShape<TSettings>; sourcePath: string | null }> {
-		for (const path of [this.primaryPath, ...this.backupPaths]) {
-			const data = await this.readAndValidate(path);
-			if (!data) continue;
-			if (path !== this.primaryPath) {
-				await this.restorePrimaryFromBackup(path);
-			}
-			return { data, sourcePath: path };
-		}
+		const data = await this.readAndValidate(this.primaryPath);
+		if (data) return { data, sourcePath: this.primaryPath };
 		return {
 			data: normalizePluginData(null, this.defaultSettings, this.getTodayKey(), this.version),
 			sourcePath: null,
@@ -187,27 +171,7 @@ export class PluginDataStore<TSettings> {
 		return mergePluginData(local, incoming, this.getTodayKey());
 	}
 
-	async rotateBackups(): Promise<void> {
-		for (let index = this.backupPaths.length - 1; index > 0; index--) {
-			const from = this.backupPaths[index - 1];
-			const to = this.backupPaths[index];
-			if (await this.adapter.exists(to)) await this.adapter.remove(to);
-			if (await this.adapter.exists(from)) await this.adapter.rename(from, to);
-		}
-		if (await this.adapter.exists(this.primaryPath)) {
-			const firstBackup = this.backupPaths[0];
-			if (await this.adapter.exists(firstBackup)) await this.adapter.remove(firstBackup);
-			await this.adapter.copy(this.primaryPath, firstBackup);
-		}
-	}
-
 	async saveSafely(data: PluginDataShape<TSettings>): Promise<void> {
-		await this.rotateBackups();
-		const hasAnyBackup = (await Promise.all(this.backupPaths.map((path) => this.adapter.exists(path)))).some(Boolean);
-		const primaryExists = await this.adapter.exists(this.primaryPath);
-		if (!hasAnyBackup && primaryExists) {
-			await this.adapter.copy(this.primaryPath, this.backupPaths[0]);
-		}
 		await this.adapter.write(this.primaryPath, JSON.stringify(data, null, 2));
 	}
 }
