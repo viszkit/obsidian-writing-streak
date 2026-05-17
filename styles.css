@@ -548,6 +548,7 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .wg-color-swatch {
@@ -567,4 +568,9 @@
 .wg-swatch-active {
   border-color: var(--text-normal);
   box-shadow: 0 0 0 2px var(--background-primary);
+}
+
+.wg-custom-color-invalid {
+  border-color: var(--text-error) !important;
+  box-shadow: 0 0 0 1px var(--text-error);
 }

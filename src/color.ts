@@ -1,5 +1,11 @@
 export const LEVEL_ALPHA = [0, 0.3, 0.5, 0.75, 1.0];
 
+export function normalizeHexColor(value: string): string | null {
+	const trimmed = value.trim();
+	const match = trimmed.match(/^#?([0-9a-fA-F]{6})$/);
+	return match ? `#${match[1].toLowerCase()}` : null;
+}
+
 export function hexToRgba(hex: string, alpha: number): string {
 	const r = parseInt(hex.slice(1, 3), 16);
 	const g = parseInt(hex.slice(3, 5), 16);
