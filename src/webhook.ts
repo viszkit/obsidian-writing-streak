@@ -1,4 +1,4 @@
-import { Notice, requestUrl } from "obsidian";
+import type { Notice, RequestUrlParam, requestUrl } from "obsidian";
 import type { WordGoalSettings } from "./settings";
 
 export interface WordGoalWebhookPayload {
@@ -17,6 +17,27 @@ export interface SendWebhookOptions {
 	test: boolean;
 }
 
+interface WebhookDependencies {
+	Notice: typeof Notice;
+	requestUrl: typeof requestUrl;
+}
+
+function getWebhookDependencies(): WebhookDependencies {
+	const obsidian = require("obsidian") as WebhookDependencies;
+	return {
+		Notice: obsidian.Notice,
+		requestUrl: obsidian.requestUrl,
+	};
+}
+
+export function isWebhookConfigured(settings: WordGoalSettings): boolean {
+	return settings.webhookUrl.trim().length > 0;
+}
+
+export function shouldMarkWebhookHandled(settings: WordGoalSettings, sent: boolean): boolean {
+	return sent || !isWebhookConfigured(settings);
+}
+
 export function buildWebhookPayload(options: SendWebhookOptions): WordGoalWebhookPayload {
 	return {
 		event: "daily_word_goal_reached",
@@ -28,19 +49,20 @@ export function buildWebhookPayload(options: SendWebhookOptions): WordGoalWebhoo
 	};
 }
 
-export async function sendWebhook(options: SendWebhookOptions): Promise<boolean> {
+export async function sendWebhook(options: SendWebhookOptions, dependencies?: WebhookDependencies): Promise<boolean> {
 	const url = options.settings.webhookUrl.trim();
 	if (!url) {
-		new Notice(options.test ? "Word Goal: No Webhook URL Configured for Test." : "Word Goal: No Webhook URL Configured.");
 		return false;
 	}
+
+	const { Notice, requestUrl } = dependencies ?? getWebhookDependencies();
 	try {
 		await requestUrl({
 			url,
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(buildWebhookPayload(options)),
-		});
+		} satisfies RequestUrlParam);
 		new Notice(options.test ? "Word Goal: Test Webhook Sent ✓" : "Word Goal: Webhook Sent ✓");
 		return true;
 	} catch (err) {

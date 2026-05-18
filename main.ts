@@ -9,7 +9,7 @@ import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
 import { DEFAULT_SETTINGS, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
 import { WordGoalSettingTab } from "./src/settings-tab";
 import { TrackingController } from "./src/tracking-controller";
-import { sendWebhook } from "./src/webhook";
+import { sendWebhook, shouldMarkWebhookHandled } from "./src/webhook";
 import { SidebarHeatmapView, VIEW_TYPE_HEATMAP } from "./src/views/sidebar-heatmap-view";
 import { DetailModal } from "./src/views/detail-modal";
 import { countMeaningfulWords } from "./src/counting";
@@ -504,7 +504,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private async fireWebhook() {
 		try {
 			const sent = await this.sendWebhook({ test: false });
-			if (!sent) return;
+			if (!shouldMarkWebhookHandled(this.settings, sent)) return;
 			this.data.lastWebhookSentDate = this.data.activeDay.date;
 			this.markDirty({ refreshSidebar: true });
 			await this.flushSave();
