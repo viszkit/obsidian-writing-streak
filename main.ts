@@ -1,8 +1,9 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import { lerpColor } from "./src/color";
+import { applyImportedDailyWordCount, dailyNotePathToDateKey } from "./src/daily-note-import";
 import { todayKey } from "./src/dates";
 import { createEmptyActiveDay, getTodayTotal, type DailyRecord } from "./src/daily-progress";
-import { openDailyNoteForDate as openDailyNote } from "./src/daily-notes";
+import { openDailyNoteForDate as openDailyNote, resolveDailyNotePathConfig } from "./src/daily-notes";
 import type { WordGoalPluginApi } from "./src/plugin-api";
 import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
 import { DEFAULT_SETTINGS, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
@@ -11,6 +12,7 @@ import { TrackingController } from "./src/tracking-controller";
 import { sendWebhook } from "./src/webhook";
 import { SidebarHeatmapView, VIEW_TYPE_HEATMAP } from "./src/views/sidebar-heatmap-view";
 import { DetailModal } from "./src/views/detail-modal";
+import { countMeaningfulWords } from "./src/counting";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -110,6 +112,13 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			name: "Import history from daily stats plugin",
 			callback: () => {
 				void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
+			},
+		});
+		this.addCommand({
+			id: "import-daily-note-word-counts",
+			name: "Import word counts from daily notes",
+			callback: () => {
+				void this.importDailyNoteWordCounts().catch((err) => console.error("Failed to import daily note word counts:", err));
 			},
 		});
 
@@ -373,6 +382,43 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		} catch (err) {
 			console.error("Import error:", err);
 			new Notice("Import failed.");
+		}
+	}
+
+	private async importDailyNoteWordCounts() {
+		try {
+			const config = await resolveDailyNotePathConfig(this.app);
+			if (!config) {
+				new Notice("Daily notes path is not configured.");
+				return;
+			}
+
+			let scanned = 0;
+			let imported = 0;
+			let skipped = 0;
+			for (const file of this.app.vault.getMarkdownFiles()) {
+				const dateKey = dailyNotePathToDateKey(file.path, config);
+				if (!dateKey) continue;
+				scanned++;
+
+				const content = await this.app.vault.cachedRead(file);
+				const words = countMeaningfulWords(content, this.app.metadataCache.getCache(file.path));
+				if (applyImportedDailyWordCount(this.data.history, dateKey, words, this.settings.dailyGoal, Date.now())) {
+					imported++;
+				} else {
+					skipped++;
+				}
+			}
+
+			if (imported > 0) {
+				this.markDirty({ refreshSidebar: true });
+				await this.flushSave();
+			}
+			this.refreshUi();
+			new Notice(`Imported ${imported} Daily Notes. Skipped ${skipped} Of ${scanned}.`);
+		} catch (err) {
+			console.error("Daily note import error:", err);
+			new Notice("Daily note import failed.");
 		}
 	}
 
