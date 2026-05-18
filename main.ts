@@ -1,35 +1,19 @@
 import { Notice, Plugin, TFile } from "obsidian";
-import { lerpColor } from "./src/color";
-import { applyImportedDailyWordCount, dailyNotePathToDateKey } from "./src/daily-note-import";
+import { PluginDataCoordinator } from "./src/data-sync";
 import { todayKey } from "./src/dates";
-import { createEmptyActiveDay, getTodayTotal, type DailyRecord } from "./src/daily-progress";
-import { openDailyNoteForDate as openDailyNote, resolveDailyNotePathConfig } from "./src/daily-notes";
+import { createEmptyActiveDay, getTodayTotal } from "./src/daily-progress";
+import { openDailyNoteForDate as openDailyNote } from "./src/daily-notes";
+import { importDailyNoteWordCounts as importDailyNoteWordCountsFromVault } from "./src/imports/daily-note-word-count-import";
+import { importDailyStatsHistory, parseDailyStatsDayCounts } from "./src/imports/daily-stats-import";
 import type { WordGoalPluginApi } from "./src/plugin-api";
-import { PluginDataStore, type PluginDataShape } from "./src/plugin-data";
+import type { PluginDataShape } from "./src/plugin-data";
 import { DEFAULT_SETTINGS, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
 import { WordGoalSettingTab } from "./src/settings-tab";
 import { TrackingController } from "./src/tracking-controller";
+import { renderStatusBar } from "./src/ui/status-bar";
 import { sendWebhook, shouldMarkWebhookHandled } from "./src/webhook";
 import { SidebarHeatmapView, VIEW_TYPE_HEATMAP } from "./src/views/sidebar-heatmap-view";
 import { DetailModal } from "./src/views/detail-modal";
-import { countMeaningfulWords } from "./src/counting";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseDailyStatsDayCounts(raw: string): Record<string, number> {
-	const parsed: unknown = JSON.parse(raw);
-	if (!isRecord(parsed) || !isRecord(parsed.dayCounts)) return {};
-
-	const dayCounts: Record<string, number> = {};
-	for (const [key, value] of Object.entries(parsed.dayCounts)) {
-		if (typeof value === "number" && Number.isFinite(value)) {
-			dayCounts[key] = value;
-		}
-	}
-	return dayCounts;
-}
 
 export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPluginApi {
 	data: PluginDataShape<WordGoalSettings> = {
@@ -42,11 +26,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private statusBarEl: HTMLElement | null = null;
 	private visibilityHandler: () => void = () => {};
 	private webhookSendInFlightDate: string | null = null;
-	private pluginDataMtime: number | null = null;
-	private saveTimer: number | null = null;
-	private dirty = false;
-	private pendingSidebarRefresh = false;
-	private saveInFlight: Promise<void> | null = null;
+	private dataCoordinator: PluginDataCoordinator<WordGoalSettings> | null = null;
 	private trackingController: TrackingController | null = null;
 	private celebrateGoalUntil = 0;
 	private celebrateGoalTimer: number | null = null;
@@ -76,14 +56,24 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		});
 	}
 
-	private getDataStore(): PluginDataStore<WordGoalSettings> {
-		return new PluginDataStore(
-			this.app.vault.adapter,
-			this.getPluginDataPath(),
-			DEFAULT_SETTINGS,
-			PLUGIN_DATA_VERSION,
-			() => todayKey()
-		);
+	private createDataCoordinator(): PluginDataCoordinator<WordGoalSettings> {
+		return new PluginDataCoordinator({
+			adapter: this.app.vault.adapter,
+			primaryPath: this.getPluginDataPath(),
+			defaultSettings: DEFAULT_SETTINGS,
+			version: PLUGIN_DATA_VERSION,
+			getTodayKey: () => todayKey(),
+			getCurrentData: () => this.data,
+			onDataMerged: (data) => this.applyMergedData(data),
+			onPendingSidebarRefresh: () => this.refreshSidebar(),
+		});
+	}
+
+	private get dataSync(): PluginDataCoordinator<WordGoalSettings> {
+		if (!this.dataCoordinator) {
+			throw new Error("Plugin data coordinator is not initialized.");
+		}
+		return this.dataCoordinator;
 	}
 
 	onload() {
@@ -91,6 +81,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	private async loadPlugin() {
+		this.dataCoordinator = this.createDataCoordinator();
 		await this.loadPluginData();
 		this.trackingController = this.createTrackingController();
 		this.todaysTotal();
@@ -190,6 +181,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			window.clearTimeout(this.celebrateGoalTimer);
 			this.celebrateGoalTimer = null;
 		}
+		this.dataCoordinator?.dispose();
 		this.trackingController?.dispose();
 		this.finalizeToday();
 		this.markDirty({ refreshSidebar: false });
@@ -283,18 +275,10 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	private async reloadAndMergeSyncedPluginData() {
-		const path = this.getPluginDataPath();
-		const stat = await this.app.vault.adapter.stat(path);
-		if (!stat) return;
-		if (this.pluginDataMtime !== null && stat.mtime <= this.pluginDataMtime) return;
-
 		try {
-			const incoming = await this.getDataStore().readAndValidate(path);
-			if (!incoming) return;
-			this.data = this.getDataStore().merge(this.data, incoming);
-			this.trackingController?.replaceActiveDay(this.data.activeDay, { preserveLastObserved: true });
-			this.syncTodayHistory();
-			this.pluginDataMtime = stat.mtime;
+			const result = await this.dataSync.reloadIfChanged(this.data);
+			if (!result.changed) return;
+			this.applyMergedData(result.data);
 		} catch (err) {
 			console.error("Failed to reload synced plugin data:", err);
 		}
@@ -306,50 +290,17 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	markDirty(options?: { refreshSidebar?: boolean }) {
-		this.dirty = true;
-		if (options?.refreshSidebar) {
-			this.pendingSidebarRefresh = true;
-		}
+		this.dataSync.markDirty(options);
 	}
 
 	private scheduleSave() {
-		if (this.saveTimer !== null) {
-			window.clearTimeout(this.saveTimer);
-		}
-		this.saveTimer = window.setTimeout(() => {
+		this.dataSync.scheduleFlush(() => {
 			void this.flushSave().catch((err) => console.error("Failed to flush scheduled plugin data save:", err));
-		}, 800);
+		});
 	}
 
 	async flushSave() {
-		if (this.saveTimer !== null) {
-			window.clearTimeout(this.saveTimer);
-			this.saveTimer = null;
-		}
-
-		if (this.saveInFlight) {
-			await this.saveInFlight;
-			return;
-		}
-		if (!this.dirty) return;
-
-		this.saveInFlight = this.performSaveLoop();
-		try {
-			await this.saveInFlight;
-		} finally {
-			this.saveInFlight = null;
-		}
-	}
-
-	private async performSaveLoop() {
-		while (this.dirty) {
-			this.dirty = false;
-			await this.savePluginData();
-		}
-		if (this.pendingSidebarRefresh) {
-			this.pendingSidebarRefresh = false;
-			this.refreshSidebar();
-		}
+		this.data = await this.dataSync.flush(this.data);
 	}
 
 	private async importDailyStats() {
@@ -363,26 +314,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			}
 			const raw = await adapter.read(path);
 			const dayCounts = parseDailyStatsDayCounts(raw);
-
-			let imported = 0;
-			for (const [dsKey, words] of Object.entries(dayCounts)) {
-				if (typeof words !== "number" || words <= 0) continue;
-				const parts = dsKey.split("/");
-				if (parts.length !== 3) continue;
-				const year = parseInt(parts[0], 10);
-				const month = parseInt(parts[1], 10) + 1;
-				const day = parseInt(parts[2], 10);
-				const isoKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-				if (!this.data.history[isoKey] || this.data.history[isoKey].totalWords === 0) {
-					this.data.history[isoKey] = {
-						totalWords: words,
-						goalMet: words >= this.settings.dailyGoal,
-						updatedAt: 0,
-					};
-					imported++;
-				}
-			}
+			const { imported } = importDailyStatsHistory(this.data.history, dayCounts, this.settings.dailyGoal);
 
 			this.markDirty({ refreshSidebar: true });
 			await this.flushSave();
@@ -395,35 +327,22 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	private async importDailyNoteWordCounts() {
 		try {
-			const config = await resolveDailyNotePathConfig(this.app);
-			if (!config) {
+			const result = await importDailyNoteWordCountsFromVault(
+				this.app,
+				this.data.history,
+				this.settings.dailyGoal
+			);
+			if (!result) {
 				new Notice("Daily notes path is not configured.");
 				return;
 			}
 
-			let scanned = 0;
-			let imported = 0;
-			let skipped = 0;
-			for (const file of this.app.vault.getMarkdownFiles()) {
-				const dateKey = dailyNotePathToDateKey(file.path, config);
-				if (!dateKey) continue;
-				scanned++;
-
-				const content = await this.app.vault.cachedRead(file);
-				const words = countMeaningfulWords(content, this.app.metadataCache.getCache(file.path));
-				if (applyImportedDailyWordCount(this.data.history, dateKey, words, this.settings.dailyGoal, Date.now())) {
-					imported++;
-				} else {
-					skipped++;
-				}
-			}
-
-			if (imported > 0) {
+			if (result.imported > 0) {
 				this.markDirty({ refreshSidebar: true });
 				await this.flushSave();
 			}
 			this.refreshUi();
-			new Notice(`Imported ${imported} Daily Notes. Skipped ${skipped} Of ${scanned}.`);
+			new Notice(`Imported ${result.imported} Daily Notes. Skipped ${result.skipped} Of ${result.scanned}.`);
 		} catch (err) {
 			console.error("Daily note import error:", err);
 			new Notice("Daily note import failed.");
@@ -431,17 +350,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	private updateStatusBar() {
-		if (!this.statusBarEl) return;
-
-		const total = this.todaysTotal();
-		const goal = this.settings.dailyGoal;
-		const pct = Math.min(total / goal, 1);
-		const dotColor = lerpColor("#555555", this.settings.heatmapColor, pct);
-
-		this.statusBarEl.empty();
-		const dot = this.statusBarEl.createSpan({ cls: "wg-sb-dot" });
-		dot.style.backgroundColor = dotColor;
-		this.statusBarEl.createSpan({ text: ` ${total} / ${goal}`, cls: "wg-sb-text" });
+		renderStatusBar(this.statusBarEl, this.todaysTotal(), this.settings);
 	}
 
 	async activateSidebar() {
@@ -470,35 +379,20 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	async loadPluginData() {
-		const { data, sourcePath } = await this.getDataStore().loadBestAvailable();
+		const { data, shouldOpenHeatmapOnFirstInstall } = await this.dataSync.load();
 		this.data = data;
-		const dataPath = this.getPluginDataPath();
-		const stat = await this.app.vault.adapter.stat(dataPath);
-		this.shouldOpenHeatmapOnFirstInstall = !stat && !sourcePath;
-		if (stat) {
-			this.pluginDataMtime = stat.mtime;
-		} else if (sourcePath) {
-			const sourceStat = await this.app.vault.adapter.stat(sourcePath);
-			this.pluginDataMtime = sourceStat?.mtime ?? null;
-		} else {
-			this.pluginDataMtime = null;
-		}
+		this.shouldOpenHeatmapOnFirstInstall = shouldOpenHeatmapOnFirstInstall;
 	}
 
 	async savePluginData() {
-		await this.savePluginDataSafely();
-		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
-		this.pluginDataMtime = stat?.mtime ?? this.pluginDataMtime;
+		this.data = await this.dataSync.flush(this.data);
 	}
 
-	private async savePluginDataSafely() {
-		const diskData = await this.getDataStore().loadBestAvailable();
-		if (diskData.sourcePath) {
-			this.data = this.getDataStore().merge(this.data, diskData.data);
-			this.trackingController?.replaceActiveDay(this.data.activeDay, { preserveLastObserved: true });
-			this.syncTodayHistory();
-		}
-		await this.getDataStore().saveSafely(this.data);
+	private applyMergedData(data: PluginDataShape<WordGoalSettings>): PluginDataShape<WordGoalSettings> {
+		this.data = data;
+		this.trackingController?.replaceActiveDay(this.data.activeDay, { preserveLastObserved: true });
+		this.syncTodayHistory();
+		return this.data;
 	}
 
 	private async fireWebhook() {

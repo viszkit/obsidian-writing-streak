@@ -102,8 +102,6 @@ export function recordFileObservation(
 	return next;
 }
 
-export const updateFileProgress = recordFileObservation;
-
 function chooseMergedBaseline(local: ActiveDayFileProgress, incoming: ActiveDayFileProgress): number {
 	const localLooksLikePartial = local.baselineWords === 0 && local.latestWords === incoming.latestWords && incoming.baselineWords > 0;
 	const incomingLooksLikePartial = incoming.baselineWords === 0 && incoming.latestWords === local.latestWords && local.baselineWords > 0;
