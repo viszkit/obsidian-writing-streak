@@ -122,7 +122,6 @@ export class SidebarHeatmapView extends ItemView {
 				cell.addClass("wg-sb-cell-clickable");
 				cell.tabIndex = 0;
 				cell.setAttribute("role", "button");
-				cell.setAttribute("aria-label", `Open daily note for ${dateStr}`);
 
 				const openDailyNote = () => {
 					void this.openDailyNoteFromSidebar(slotDate).catch((err) => {
