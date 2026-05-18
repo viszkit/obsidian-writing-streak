@@ -51,6 +51,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private celebrateGoalUntil = 0;
 	private celebrateGoalTimer: number | null = null;
 	private visibilityDocument: Document | null = null;
+	private shouldOpenHeatmapOnFirstInstall = false;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -231,9 +232,16 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	private async handleLayoutReady() {
 		const initialized = await this.tracker.handleLayoutReady();
-		if (initialized) return;
-		this.syncTodayHistory();
-		this.refreshUi();
+		if (!initialized) {
+			this.syncTodayHistory();
+			this.refreshUi();
+		}
+		if (this.shouldOpenHeatmapOnFirstInstall) {
+			this.shouldOpenHeatmapOnFirstInstall = false;
+			await this.activateSidebar();
+			this.markDirty({ refreshSidebar: false });
+			await this.flushSave();
+		}
 	}
 
 	private maybeCelebrateGoal() {
@@ -464,7 +472,9 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	async loadPluginData() {
 		const { data, sourcePath } = await this.getDataStore().loadBestAvailable();
 		this.data = data;
-		const stat = await this.app.vault.adapter.stat(this.getPluginDataPath());
+		const dataPath = this.getPluginDataPath();
+		const stat = await this.app.vault.adapter.stat(dataPath);
+		this.shouldOpenHeatmapOnFirstInstall = !stat && !sourcePath;
 		if (stat) {
 			this.pluginDataMtime = stat.mtime;
 		} else if (sourcePath) {
