@@ -57,7 +57,9 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
 ## Data and privacy
 
 - Plugin data is stored in your vault under `.obsidian/plugins/word-goal-webhook/data.json`.
-- The plugin makes network requests only when you configure a webhook URL and your daily goal is reached.
+- The plugin makes network requests only when you configure a webhook URL. It sends `POST` requests only to the URL you enter when your daily goal is reached or when you click **Send test webhook**.
+- Webhook payloads include the event name, configured daily goal, actual word count, date, timestamp, and whether the payload is a test.
+- The daily-note word count import checks only the expected daily-note paths in the date range you choose. It does not enumerate every file in the vault.
 - The plugin does not require an account, payment, ads, or telemetry.
 - The source code in this repository is open source.
 
@@ -71,7 +73,7 @@ npm run deploy:runtime
 
 `npm run deploy:runtime` copies only `main.js`, `manifest.json`, and `styles.css` into the local Obsidian plugin folder and removes development-only files from that installed copy. Set `OBSIDIAN_PLUGIN_DIR` to deploy to a different vault.
 
-Create releases by attaching `main.js`, `manifest.json`, and `styles.css` to a GitHub release whose tag matches the manifest version.
+Create releases by pushing a version tag that matches the manifest version. The GitHub release workflow builds from source, runs tests, uploads `main.js`, `manifest.json`, and `styles.css`, and creates GitHub artifact attestations for those release assets.
 
 ## License
 

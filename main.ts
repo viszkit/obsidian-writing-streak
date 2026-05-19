@@ -4,6 +4,7 @@ import { todayKey } from "./src/dates";
 import { createEmptyActiveDay, getTodayTotal } from "./src/daily-progress";
 import { openDailyNoteForDate as openDailyNote } from "./src/daily-notes";
 import { importDailyNoteWordCounts as importDailyNoteWordCountsFromVault } from "./src/imports/daily-note-word-count-import";
+import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-word-count-import";
 import { importDailyStatsHistory, parseDailyStatsDayCounts } from "./src/imports/daily-stats-import";
 import type { WordGoalPluginApi } from "./src/plugin-api";
 import type { PluginDataShape } from "./src/plugin-data";
@@ -14,6 +15,7 @@ import { renderStatusBar } from "./src/ui/status-bar";
 import { sendWebhook, shouldMarkWebhookHandled } from "./src/webhook";
 import { SidebarHeatmapView, VIEW_TYPE_HEATMAP } from "./src/views/sidebar-heatmap-view";
 import { DetailModal } from "./src/views/detail-modal";
+import { DailyNoteImportModal } from "./src/views/daily-note-import-modal";
 
 export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPluginApi {
 	data: PluginDataShape<WordGoalSettings> = {
@@ -110,7 +112,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			id: "import-daily-note-word-counts",
 			name: "Import word counts from daily notes",
 			callback: () => {
-				void this.importDailyNoteWordCounts().catch((err) => console.error("Failed to import daily note word counts:", err));
+				new DailyNoteImportModal(this.app, (range) => this.importDailyNoteWordCounts(range)).open();
 			},
 		});
 
@@ -325,12 +327,13 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		}
 	}
 
-	private async importDailyNoteWordCounts() {
+	private async importDailyNoteWordCounts(range: DailyNoteWordCountImportRange) {
 		try {
 			const result = await importDailyNoteWordCountsFromVault(
 				this.app,
 				this.data.history,
-				this.settings.dailyGoal
+				this.settings.dailyGoal,
+				range
 			);
 			if (!result) {
 				new Notice("Daily notes path is not configured.");
@@ -342,7 +345,10 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 				await this.flushSave();
 			}
 			this.refreshUi();
-			new Notice(`Imported ${result.imported} Daily Notes. Skipped ${result.skipped} Of ${result.scanned}.`);
+			new Notice(
+				`Checked ${result.checked} Daily Notes (${result.startDate} to ${result.endDate}). ` +
+				`Imported ${result.imported}, skipped ${result.skipped}, missing ${result.missing}.`
+			);
 		} catch (err) {
 			console.error("Daily note import error:", err);
 			new Notice("Daily note import failed.");

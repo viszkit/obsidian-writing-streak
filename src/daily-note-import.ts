@@ -9,7 +9,51 @@ export interface DailyNotePathConfig {
 export interface DailyNoteImportResult {
 	imported: number;
 	skipped: number;
-	scanned: number;
+	checked: number;
+	missing: number;
+}
+
+function dateToKey(date: Date): string {
+	const y = date.getFullYear();
+	const m = String(date.getMonth() + 1).padStart(2, "0");
+	const d = String(date.getDate()).padStart(2, "0");
+	return `${y}-${m}-${d}`;
+}
+
+function parseDateKeyValue(value: string): Date | null {
+	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+	if (!match) return null;
+
+	const year = Number(match[1]);
+	const month = Number(match[2]);
+	const day = Number(match[3]);
+	const date = new Date(year, month - 1, day);
+	if (
+		date.getFullYear() !== year ||
+		date.getMonth() !== month - 1 ||
+		date.getDate() !== day
+	) {
+		return null;
+	}
+	return date;
+}
+
+function addDays(date: Date, days: number): Date {
+	return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+export function buildDailyNoteImportDateKeys(startDate: string, endDate: string): string[] {
+	const start = parseDateKeyValue(startDate);
+	const end = parseDateKeyValue(endDate);
+	if (!start || !end || start > end) {
+		throw new Error("Invalid daily note import date range.");
+	}
+
+	const dates: string[] = [];
+	for (let date = start; date <= end; date = addDays(date, 1)) {
+		dates.push(dateToKey(date));
+	}
+	return dates;
 }
 
 function normalizeVaultPath(path: string): string {
@@ -58,6 +102,22 @@ export function dailyNotePathToDateKey(path: string, config: DailyNotePathConfig
 		if (dateKey) return dateKey;
 	}
 	return null;
+}
+
+export function buildDailyNotePathForDate(date: Date, config: DailyNotePathConfig): string | null {
+	if (config.format.trim().length === 0) return null;
+
+	const momentModule = moment as unknown as { default?: unknown };
+	const formatMoment = (momentModule.default ?? moment) as (input: Date) => { format(format: string): string };
+	const normalizedFormat = stripMarkdownExtension(normalizeVaultPath(config.format));
+	const formattedPath = formatMoment(date).format(normalizedFormat);
+	if (formattedPath.trim().length === 0) return null;
+
+	const combinedPath = config.folder
+		? normalizeVaultPath(`${config.folder}/${formattedPath}`)
+		: normalizeVaultPath(formattedPath);
+
+	return combinedPath.endsWith(".md") ? combinedPath : `${combinedPath}.md`;
 }
 
 export function applyImportedDailyWordCount(

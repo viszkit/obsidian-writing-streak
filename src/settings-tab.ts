@@ -65,7 +65,7 @@ export class WordGoalSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Webhook URL")
-			.setDesc("Post endpoint for the daily goal notification")
+			.setDesc("POST endpoint for the daily goal notification. Requests are sent only to the URL you enter.")
 			.addText((t) => t
 				.setPlaceholder("https://hook.example.com/...")
 				.setValue(this.plugin.settings.webhookUrl)
@@ -76,7 +76,7 @@ export class WordGoalSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Test webhook")
-			.setDesc("Send a test payload to confirm your webhook setup")
+			.setDesc("Send one test payload to the configured webhook URL.")
 			.addButton((button) => button
 				.setButtonText("Send test webhook")
 				.onClick(() => {

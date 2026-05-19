@@ -1,5 +1,5 @@
-import { App, TFile, moment, normalizePath } from "obsidian";
-import type { DailyNotePathConfig } from "./daily-note-import";
+import { App, TFile } from "obsidian";
+import { buildDailyNotePathForDate as buildDailyNotePathForDateFromConfig, type DailyNotePathConfig } from "./daily-note-import";
 
 export type { DailyNotePathConfig } from "./daily-note-import";
 
@@ -70,19 +70,7 @@ async function getPeriodicDailyNotePathConfig(app: App): Promise<DailyNotePathCo
 	}
 }
 
-function buildDailyNotePathForDate(date: Date, config: DailyNotePathConfig): string | null {
-	if (config.format.trim().length === 0) return null;
-
-	const formatMoment = moment as unknown as (input: Date) => { format(format: string): string };
-	const formattedPath = formatMoment(date).format(config.format);
-	if (formattedPath.trim().length === 0) return null;
-
-	const combinedPath = config.folder
-		? normalizePath(`${config.folder}/${formattedPath}`)
-		: normalizePath(formattedPath);
-
-	return combinedPath.endsWith(".md") ? combinedPath : `${combinedPath}.md`;
-}
+export const buildDailyNotePathForDate = buildDailyNotePathForDateFromConfig;
 
 export async function resolveDailyNotePathConfig(app: App): Promise<DailyNotePathConfig | null> {
 	const periodicConfig = await getPeriodicDailyNotePathConfig(app);
