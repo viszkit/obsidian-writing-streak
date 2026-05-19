@@ -20,6 +20,7 @@ function isValidRange(startDate: string, endDate: string): boolean {
 export class DailyNoteImportModal extends Modal {
 	private startDate = startOfCurrentYear();
 	private endDate = todayKey();
+	private isImporting = false;
 
 	constructor(app: App, private readonly onImport: (range: DailyNoteWordCountImportRange) => Promise<void>) {
 		super(app);
@@ -36,9 +37,10 @@ export class DailyNoteImportModal extends Modal {
 	private render() {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl("h2", { text: "Import daily note word counts" });
+		const form = contentEl.createEl("form");
+		form.createEl("h2", { text: "Import daily note word counts" });
 
-		new Setting(contentEl)
+		new Setting(form)
 			.setName("Start date")
 			.setDesc("First daily note date to check")
 			.addText((text) => {
@@ -50,7 +52,7 @@ export class DailyNoteImportModal extends Modal {
 					});
 			});
 
-		new Setting(contentEl)
+		new Setting(form)
 			.setName("End date")
 			.setDesc("Last daily note date to check")
 			.addText((text) => {
@@ -62,30 +64,45 @@ export class DailyNoteImportModal extends Modal {
 					});
 			});
 
-		new Setting(contentEl)
-			.addButton((button) => button
-				.setButtonText("Cancel")
-				.onClick(() => this.close())
-			)
-			.addButton((button) => button
-				.setCta()
-				.setButtonText("Import")
-				.onClick(() => {
-					void this.submit().catch((err) => console.error("Failed to import daily notes:", err));
-				})
-			);
+		const actions = form.createDiv({ cls: "modal-button-container" });
+		const cancelButton = actions.createEl("button", { text: "Cancel", type: "button" });
+		cancelButton.addEventListener("click", () => this.close());
+
+		const importButton = actions.createEl("button", { text: "Import", type: "submit", cls: "mod-cta" });
+		form.addEventListener("submit", (event) => {
+			event.preventDefault();
+			void this.submit(importButton);
+		});
 	}
 
-	private async submit() {
+	private async submit(importButton?: HTMLButtonElement) {
+		if (this.isImporting) return;
+
 		if (!isValidRange(this.startDate, this.endDate)) {
 			new Notice("Choose a valid daily note import date range.");
 			return;
 		}
 
-		await this.onImport({
-			startDate: this.startDate,
-			endDate: this.endDate,
-		});
-		this.close();
+		this.isImporting = true;
+		if (importButton) {
+			importButton.disabled = true;
+			importButton.textContent = "Importing...";
+		}
+
+		try {
+			await this.onImport({
+				startDate: this.startDate,
+				endDate: this.endDate,
+			});
+			this.close();
+		} catch (err) {
+			console.error("Failed to import daily notes:", err);
+			new Notice("Daily note import failed.");
+			this.isImporting = false;
+			if (importButton) {
+				importButton.disabled = false;
+				importButton.textContent = "Import";
+			}
+		}
 	}
 }

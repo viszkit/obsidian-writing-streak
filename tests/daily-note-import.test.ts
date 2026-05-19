@@ -80,6 +80,15 @@ test("daily note import uses exact path lookup instead of vault-wide markdown en
 	assert.doesNotMatch(source, vaultWideEnumerationPattern);
 });
 
+test("daily note import modal submits through a native form", () => {
+	const source = readFileSync("src/views/daily-note-import-modal.ts", "utf8");
+	assert.match(source, /createEl\("form"\)/);
+	assert.match(source, /addEventListener\("submit"/);
+	assert.match(source, /event\.preventDefault\(\)/);
+	assert.match(source, /type: "submit"/);
+	assert.doesNotMatch(source, /setButtonText\("Import"\)/);
+});
+
 test("applyImportedDailyWordCount imports missing day", () => {
 	const history: Record<string, DailyRecord> = {};
 	const changed = applyImportedDailyWordCount(history, "2026-05-18", 120, 500, 10);
