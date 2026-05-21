@@ -91,6 +91,14 @@ export class TrackingController {
 		const view = this.resolveMarkdownViewForEditor(editor);
 		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
+		const previousPath = this.filePathByEditor.get(editor);
+		if (previousPath && previousPath !== file.path) {
+			const result = renameTrackedFile(this.state, previousPath, file.path);
+			this.applyState(result.state);
+			if (result.changed) {
+				this.deps.onProgressChanged();
+			}
+		}
 		setTrackedEditorPath(this.filePathByEditor, this.editorByFilePath, editor, file.path);
 
 		void this.observeLiveEditorWords(file, editor, "editor-change")

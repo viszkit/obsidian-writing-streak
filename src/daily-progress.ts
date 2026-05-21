@@ -155,7 +155,16 @@ export function renameFileProgress(activeDay: ActiveDayData, oldPath: string, ne
 	const next = normalizeActiveDay(activeDay.date, activeDay);
 	const existing = next.files[oldPath];
 	if (!existing) return next;
-	next.files[newPath] = mergeFileProgress(next.files[newPath], existing) ?? existing;
+	const target = next.files[newPath];
+	if (target && target.latestWords === existing.latestWords && existing.baselineWords < target.baselineWords) {
+		next.files[newPath] = {
+			baselineWords: existing.baselineWords,
+			latestWords: target.latestWords,
+			latestObservedAt: Math.max(target.latestObservedAt, existing.latestObservedAt),
+		};
+	} else {
+		next.files[newPath] = mergeFileProgress(target, existing) ?? existing;
+	}
 	delete next.files[oldPath];
 	return next;
 }

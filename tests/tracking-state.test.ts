@@ -118,6 +118,22 @@ test("rename moves active progress and last observed words", () => {
 	assert.equal(getTodayTotal(renamed.state.activeDay), 10);
 });
 
+test("rename reconciles move race without duplicating the same latest words", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "old.md", 0, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "old.md", 39, 2).state;
+	state = recordObservedFileWords(state, "2026-04-15", "folder/new.md", 39, 3).state;
+
+	const renamed = renameTrackedFile(state, "old.md", "folder/new.md");
+
+	assert.equal(renamed.changed, true);
+	assert.equal(renamed.state.activeDay.files["old.md"], undefined);
+	assert.equal(renamed.state.activeDay.files["folder/new.md"].baselineWords, 0);
+	assert.equal(renamed.state.activeDay.files["folder/new.md"].latestWords, 39);
+	assert.equal(hasDuplicateObservation(renamed.state, "folder/new.md", 39), true);
+	assert.equal(getTodayTotal(renamed.state.activeDay), 39);
+});
+
 test("day rollover reports the previous total and resets active tracking", () => {
 	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
 	state = recordObservedFileWords(state, "2026-04-15", "note.md", 100, 1).state;
