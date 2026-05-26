@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, WorkspaceMobileDrawer, setIcon } from "obsidian";
+import { ItemView, Notice, WorkspaceLeaf, WorkspaceMobileDrawer, setIcon } from "obsidian";
 import { LEVEL_ALPHA, hexToRgba } from "../color";
 import { formatLocalizedDate, formatLocalizedNumber, isToday } from "../dates";
 import type { WordGoalPluginApi } from "../plugin-api";
@@ -159,10 +159,30 @@ export class SidebarHeatmapView extends ItemView {
 	}
 
 	private async openDailyNoteFromSidebar(date: Date): Promise<void> {
-		const opened = await this.plugin.openDailyNoteForDate(date);
-		if (!opened || !(this.app as typeof this.app & { isMobile?: boolean }).isMobile) return;
+		const result = await this.plugin.openDailyNoteForDate(date);
+		if (!result.opened) {
+			this.showDailyNoteOpenFailure(date, result);
+			return;
+		}
+		if (!(this.app as typeof this.app & { isMobile?: boolean }).isMobile) return;
 
 		this.collapseMobileSidebar();
+	}
+
+	private showDailyNoteOpenFailure(
+		date: Date,
+		result: Extract<Awaited<ReturnType<WordGoalPluginApi["openDailyNoteForDate"]>>, { opened: false }>
+	): void {
+		const dateStr = formatLocalizedDate(date, { day: "numeric", month: "short", year: "numeric" });
+		if (result.reason === "missing-file") {
+			new Notice(`No daily note found for ${dateStr}: ${result.path}`);
+			return;
+		}
+		if (result.reason === "invalid-path") {
+			new Notice(`Could not build a daily note path for ${dateStr}. Check your daily note format.`);
+			return;
+		}
+		new Notice("Configure Daily Notes or Periodic Notes to open heatmap days.");
 	}
 
 	private collapseMobileSidebar(): void {

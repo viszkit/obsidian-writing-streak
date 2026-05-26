@@ -1,5 +1,7 @@
-import * as moment from "moment";
+import { moment } from "obsidian";
 import type { DailyRecord } from "./daily-progress";
+
+type MomentFormatter = (input: Date) => { format(format: string): string };
 
 export interface DailyNotePathConfig {
 	format: string;
@@ -107,9 +109,8 @@ export function dailyNotePathToDateKey(path: string, config: DailyNotePathConfig
 export function buildDailyNotePathForDate(date: Date, config: DailyNotePathConfig): string | null {
 	if (config.format.trim().length === 0) return null;
 
-	const momentModule = moment as unknown as { default?: unknown };
-	const formatMoment = (momentModule.default ?? moment) as (input: Date) => { format(format: string): string };
 	const normalizedFormat = stripMarkdownExtension(normalizeVaultPath(config.format));
+	const formatMoment = moment as unknown as MomentFormatter;
 	const formattedPath = formatMoment(date).format(normalizedFormat);
 	if (formattedPath.trim().length === 0) return null;
 

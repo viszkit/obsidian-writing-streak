@@ -1,7 +1,7 @@
 {
   "id": "word-goal-webhook",
   "name": "Writing Tracker Heatmap Streaks",
-  "version": "3.2.5",
+  "version": "3.2.6",
   "minAppVersion": "1.7.2",
   "description": "Daily word goal webhook + minimal sidebar heatmap with detailed stats view.",
   "author": "Laszlo",

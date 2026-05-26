@@ -380,7 +380,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		}
 	}
 
-	async openDailyNoteForDate(date: Date): Promise<boolean> {
+	async openDailyNoteForDate(date: Date): ReturnType<typeof openDailyNote> {
 		return openDailyNote(this.app, date);
 	}
 
