@@ -9,8 +9,10 @@ Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin tha
 - Track daily new words instead of total file length.
 - Send a webhook when the configured daily word goal is reached.
 - View a sidebar heatmap with today's count and current streaks.
+- Click a sidebar heatmap day to open the matching daily note.
 - Open a detailed stats modal with yearly history and monthly totals.
 - Import past history from the `obsidian-daily-stats` plugin.
+- Import past word counts from configured daily notes.
 
 ## Installation
 
@@ -24,6 +26,8 @@ Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins br
 
 The plugin tracks your current daily word count in the status bar. The sidebar heatmap can be opened when needed, and each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
 
+Click a day in the sidebar heatmap to open its daily note. The plugin uses your Periodic Notes daily settings first, then Obsidian's core Daily Notes settings, and resolves the note from the configured folder and Moment-style date format. Date tokens follow Obsidian's locale, so localized month and weekday names such as `Mai` or `Dienstag` are supported. If the expected daily note is missing or daily notes are not configured, Obsidian shows a notice instead of failing silently.
+
 ![Heatmap Detailed View](heatmap_details.png)
 
 Commands:
@@ -32,6 +36,7 @@ Commands:
 - `Open writing stats`
 - `Show today's word count`
 - `Import history from daily stats plugin`
+- `Import word counts from daily notes`
 
 Settings:
 
@@ -59,7 +64,7 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
 - Plugin data is stored in your vault under `.obsidian/plugins/word-goal-webhook/data.json`.
 - The plugin makes network requests only when you configure a webhook URL. It sends `POST` requests only to the URL you enter when your daily goal is reached or when you click **Send test webhook**.
 - Webhook payloads include the event name, configured daily goal, actual word count, date, timestamp, and whether the payload is a test.
-- The daily-note word count import checks only the expected daily-note paths in the date range you choose. It does not enumerate every file in the vault.
+- Daily-note opening and daily-note word count import check only the expected daily-note paths from your configured folder and date format. The plugin does not enumerate every file in the vault.
 - The plugin does not require an account, payment, ads, or telemetry.
 - The source code in this repository is open source.
 
