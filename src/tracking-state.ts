@@ -3,6 +3,7 @@ import {
 	getTodayTotal,
 	normalizeActiveDay,
 	recordFileObservation,
+	removeFileProgress,
 	renameFileProgress,
 	type ActiveDayData,
 	type ActiveDayFileProgress,
@@ -34,6 +35,11 @@ export interface FileObservationResult {
 }
 
 export interface FileRenameResult {
+	state: TrackingState;
+	changed: boolean;
+}
+
+export interface FileRemovalResult {
 	state: TrackingState;
 	changed: boolean;
 }
@@ -203,4 +209,36 @@ export function renameTrackedFile(state: TrackingState, oldPath: string, newPath
 		state: { activeDay, lastObservedWordsByPath },
 		changed: activeDay !== state.activeDay || previousWords !== undefined,
 	};
+}
+
+export function removeTrackedFile(state: TrackingState, path: string): FileRemovalResult {
+	const activeDay = removeFileProgress(state.activeDay, path);
+	const lastObservedWordsByPath = cloneLastObserved(state.lastObservedWordsByPath);
+	const hadObservedWords = lastObservedWordsByPath.delete(path);
+
+	return {
+		state: { activeDay, lastObservedWordsByPath },
+		changed: activeDay !== state.activeDay || hadObservedWords,
+	};
+}
+
+export function removeTrackedFilesWhere(
+	state: TrackingState,
+	shouldRemove: (path: string) => boolean
+): FileRemovalResult {
+	let nextState = state;
+	let changed = false;
+	const paths = new Set([
+		...Object.keys(state.activeDay.files),
+		...state.lastObservedWordsByPath.keys(),
+	]);
+
+	for (const path of paths) {
+		if (!shouldRemove(path)) continue;
+		const result = removeTrackedFile(nextState, path);
+		nextState = result.state;
+		changed = result.changed || changed;
+	}
+
+	return { state: nextState, changed };
 }

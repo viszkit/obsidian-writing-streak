@@ -7,6 +7,7 @@ Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin tha
 ## Features
 
 - Track daily new words instead of total file length.
+- Exclude reference or generated-note folders from daily word tracking.
 - Send a webhook when the configured daily word goal is reached.
 - View a sidebar heatmap with today's count and current streaks.
 - Click a sidebar heatmap day to open the matching daily note.
@@ -24,7 +25,7 @@ Install **Writing Tracker Heatmap Streaks** from Obsidian's community plugins br
 
 ## Usage
 
-The plugin tracks your current daily word count in the status bar. The sidebar heatmap can be opened when needed, and each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
+The plugin tracks your current daily word count in the status bar. Words are counted as growth from each note's daily baseline, and if you delete older text below that baseline, the baseline lowers so future writing starts counting from the new length. The sidebar heatmap can be opened when needed, and each day is shaded based on how many words you wrote relative to your strongest writing day for that year.
 
 Click a day in the sidebar heatmap to open its daily note. The plugin uses your Periodic Notes daily settings first, then Obsidian's core Daily Notes settings, and resolves the note from the configured folder and Moment-style date format. Date tokens follow Obsidian's locale, so localized month and weekday names such as `Mai` or `Dienstag` are supported. If the expected daily note is missing or daily notes are not configured, Obsidian shows a notice instead of failing silently.
 
@@ -44,6 +45,7 @@ Settings:
 - **Daily word goal**: number of new words required before the webhook fires.
 - **Heatmap colour**: choose one of the built-in color presets.
 - **Goal-met visual cue**: show or hide the marker on days where the goal was reached.
+- **Excluded folders**: one folder path per line, such as `Zettelkasten/Notes/`. Notes inside these folders are ignored silently and removed from today's active count if they were already tracked.
 
 When the goal is reached, the plugin sends a `POST` request with a JSON payload like:
 

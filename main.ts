@@ -8,7 +8,7 @@ import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-wor
 import { importDailyStatsHistory, parseDailyStatsDayCounts } from "./src/imports/daily-stats-import";
 import type { WordGoalPluginApi } from "./src/plugin-api";
 import type { PluginDataShape } from "./src/plugin-data";
-import { DEFAULT_SETTINGS, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
+import { DEFAULT_SETTINGS, isPathInExcludedFolder, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
 import { WordGoalSettingTab } from "./src/settings-tab";
 import { TrackingController } from "./src/tracking-controller";
 import { renderStatusBar } from "./src/ui/status-bar";
@@ -55,6 +55,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			reloadSyncedData: () => this.reloadAndMergeSyncedPluginData(),
 			onProgressChanged: () => this.finalizeProgressChange(),
 			onPreviousDayFinalized: (dateKey, totalWords) => this.syncHistoryEntry(dateKey, totalWords),
+			isFileExcluded: (path) => isPathInExcludedFolder(path, this.settings.excludedFolders),
 		});
 	}
 
@@ -86,6 +87,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		this.dataCoordinator = this.createDataCoordinator();
 		await this.loadPluginData();
 		this.trackingController = this.createTrackingController();
+		this.pruneExcludedTrackedFiles();
 		this.todaysTotal();
 		this.syncTodayHistory();
 
@@ -272,6 +274,10 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		this.refreshSidebar();
 	}
 
+	pruneExcludedTrackedFiles(): boolean {
+		return this.trackingController?.pruneExcludedFiles() ?? false;
+	}
+
 	private getPluginDataPath(): string {
 		return `${this.app.vault.configDir}/plugins/${this.manifest.id}/data.json`;
 	}
@@ -397,6 +403,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private applyMergedData(data: PluginDataShape<WordGoalSettings>): PluginDataShape<WordGoalSettings> {
 		this.data = data;
 		this.trackingController?.replaceActiveDay(this.data.activeDay, { preserveLastObserved: true });
+		this.pruneExcludedTrackedFiles();
 		this.syncTodayHistory();
 		return this.data;
 	}

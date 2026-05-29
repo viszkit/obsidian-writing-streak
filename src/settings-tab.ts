@@ -1,7 +1,7 @@
 import { App, ButtonComponent, PluginSettingTab, Setting } from "obsidian";
 import { normalizeHexColor } from "./color";
 import type { WordGoalPluginApi } from "./plugin-api";
-import { COLOR_PRESETS } from "./settings";
+import { COLOR_PRESETS, normalizeExcludedFolders } from "./settings";
 
 export class WordGoalSettingTab extends PluginSettingTab {
 	constructor(app: App, private readonly plugin: WordGoalPluginApi) {
@@ -52,6 +52,15 @@ export class WordGoalSettingTab extends PluginSettingTab {
 
 	private async persistGoalMetCue(value: boolean) {
 		this.plugin.settings.showGoalMetCue = value;
+		this.plugin.markDirty({ refreshSidebar: true });
+		await this.plugin.flushSave();
+		this.plugin.refreshUi();
+	}
+
+	private async persistExcludedFolders(value: string) {
+		this.plugin.settings.excludedFolders = normalizeExcludedFolders(value.split(/\r?\n/));
+		this.plugin.pruneExcludedTrackedFiles();
+		this.plugin.syncTodayHistory();
 		this.plugin.markDirty({ refreshSidebar: true });
 		await this.plugin.flushSave();
 		this.plugin.refreshUi();
@@ -157,5 +166,20 @@ export class WordGoalSettingTab extends PluginSettingTab {
 					void this.persistGoalMetCue(value).catch((err) => console.error("Failed to save goal-met cue setting:", err));
 				})
 			);
+
+		new Setting(containerEl).setName("Counting").setHeading();
+
+		new Setting(containerEl)
+			.setName("Excluded folders")
+			.setDesc("One folder path per line. Notes inside these folders do not count toward daily progress.")
+			.addTextArea((text) => {
+				text
+					.setPlaceholder("Zettelkasten/Notes/")
+					.setValue(this.plugin.settings.excludedFolders.join("\n"))
+					.onChange((value) => {
+						void this.persistExcludedFolders(value).catch((err) => console.error("Failed to save excluded folders:", err));
+					});
+				text.inputEl.rows = 4;
+			});
 	}
 }

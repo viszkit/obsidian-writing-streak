@@ -8,6 +8,8 @@ import {
 	hasDuplicateObservation,
 	initializeFileBaselineFromStoredSnapshot,
 	recordObservedFileWords,
+	removeTrackedFile,
+	removeTrackedFilesWhere,
 	renameTrackedFile,
 	rollTrackingStateToDate,
 	type TrackingState,
@@ -21,6 +23,7 @@ export interface TrackingControllerDeps {
 	reloadSyncedData(): Promise<void>;
 	onProgressChanged(): void;
 	onPreviousDayFinalized(dateKey: string, totalWords: number): void;
+	isFileExcluded(path: string): boolean;
 }
 
 const DEBUG_OBSERVATION_DIAGNOSTICS = false;
@@ -92,6 +95,18 @@ export class TrackingController {
 		const file = view?.file;
 		if (!file || !(file instanceof TFile)) return;
 		const previousPath = this.filePathByEditor.get(editor);
+		if (this.deps.isFileExcluded(file.path)) {
+			const result = removeTrackedFilesWhere(
+				this.state,
+				(path) => path === file.path || path === previousPath
+			);
+			this.applyState(result.state);
+			this.filePathByEditor.delete(editor);
+			if (previousPath) this.editorByFilePath.delete(previousPath);
+			this.editorByFilePath.delete(file.path);
+			if (result.changed) this.deps.onProgressChanged();
+			return;
+		}
 		if (previousPath && previousPath !== file.path) {
 			const result = renameTrackedFile(this.state, previousPath, file.path);
 			this.applyState(result.state);
@@ -113,6 +128,10 @@ export class TrackingController {
 
 	handleFileOpen(file: TFile) {
 		if (file.extension !== "md") return;
+		if (this.deps.isFileExcluded(file.path)) {
+			this.removeFileIfTracked(file.path);
+			return;
+		}
 		this.refreshMarkdownEditorCache();
 		const leaf = this.findMarkdownLeafByPath(file.path);
 		void this.finalizeSnapshotFromLeafIfChanged(leaf, "file open")
@@ -121,6 +140,10 @@ export class TrackingController {
 
 	async handleVaultModify(file: TFile): Promise<void> {
 		if (!this.hasCompletedInitialHydration || file.extension !== "md") return;
+		if (this.deps.isFileExcluded(file.path)) {
+			this.removeFileIfTracked(file.path);
+			return;
+		}
 		await this.deps.reloadSyncedData();
 		const liveEditor = this.editorByFilePath.get(file.path);
 		if (liveEditor) {
@@ -144,6 +167,28 @@ export class TrackingController {
 	handleFileRename(file: TFile, oldPath: string) {
 		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
+		if (this.deps.isFileExcluded(file.path)) {
+			const result = removeTrackedFilesWhere(
+				this.state,
+				(path) => path === oldPath || path === file.path
+			);
+			this.applyState(result.state);
+			const editor = this.editorByFilePath.get(oldPath);
+			if (editor) {
+				this.editorByFilePath.delete(oldPath);
+				this.filePathByEditor.delete(editor);
+			}
+			this.editorByFilePath.delete(file.path);
+			if (result.changed) {
+				this.deps.onProgressChanged();
+			}
+			return;
+		}
+		if (this.deps.isFileExcluded(oldPath)) {
+			this.editorByFilePath.delete(oldPath);
+			this.refreshMarkdownEditorCache();
+			return;
+		}
 		const result = renameTrackedFile(this.state, oldPath, file.path);
 		this.applyState(result.state);
 		const editor = this.editorByFilePath.get(oldPath);
@@ -154,6 +199,15 @@ export class TrackingController {
 		if (result.changed) {
 			this.deps.onProgressChanged();
 		}
+	}
+
+	pruneExcludedFiles(): boolean {
+		const result = removeTrackedFilesWhere(this.state, (path) => this.deps.isFileExcluded(path));
+		this.applyState(result.state);
+		if (result.changed) {
+			this.deps.onProgressChanged();
+		}
+		return result.changed;
 	}
 
 	finalizeToday() {
@@ -212,6 +266,10 @@ export class TrackingController {
 	}
 
 	private async observeLiveEditorWords(file: TFile, editor: Editor, source: string): Promise<void> {
+		if (this.deps.isFileExcluded(file.path)) {
+			this.removeFileIfTracked(file.path);
+			return;
+		}
 		const words = this.countEditorWords(file, editor);
 		if (hasDuplicateObservation(this.state, file.path, words)) return;
 
@@ -225,6 +283,10 @@ export class TrackingController {
 	}
 
 	private observeFileWords(file: TFile, words: number, source: string, observedAt = Date.now()): boolean {
+		if (this.deps.isFileExcluded(file.path)) {
+			this.removeFileIfTracked(file.path);
+			return false;
+		}
 		this.ensureCurrentDay();
 		const result = recordObservedFileWords(
 			this.state,
@@ -248,6 +310,10 @@ export class TrackingController {
 	}
 
 	private async ensureFileProgressInitializedFromStorage(file: TFile, source: string, liveWords?: number): Promise<boolean> {
+		if (this.deps.isFileExcluded(file.path)) {
+			this.removeFileIfTracked(file.path);
+			return false;
+		}
 		this.ensureCurrentDay();
 		const path = file.path;
 		const dateKey = this.deps.todayKey();
@@ -298,6 +364,10 @@ export class TrackingController {
 		if (!(view instanceof MarkdownView)) return false;
 		const file = view.file;
 		if (!file) return false;
+		if (this.deps.isFileExcluded(file.path)) {
+			this.removeFileIfTracked(file.path);
+			return false;
+		}
 		if (!this.hasCompletedInitialHydration) return false;
 		try {
 			return await this.ensureFileProgressInitializedFromStorage(file, "initialize-snapshot-from-leaf");
@@ -324,6 +394,7 @@ export class TrackingController {
 		for (const leaf of this.deps.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (!(view instanceof MarkdownView) || !view.file) continue;
+			if (this.deps.isFileExcluded(view.file.path)) continue;
 			leavesByPath.set(view.file.path, leaf);
 		}
 
@@ -362,8 +433,18 @@ export class TrackingController {
 		for (const leaf of this.deps.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (!(view instanceof MarkdownView) || !view.file) continue;
+			if (this.deps.isFileExcluded(view.file.path)) continue;
 			setTrackedEditorPath(this.filePathByEditor, this.editorByFilePath, view.editor, view.file.path);
 		}
+	}
+
+	private removeFileIfTracked(path: string): boolean {
+		const result = removeTrackedFile(this.state, path);
+		this.applyState(result.state);
+		if (result.changed) {
+			this.deps.onProgressChanged();
+		}
+		return result.changed;
 	}
 
 	private countEditorWords(file: TFile, editor: Editor): number {

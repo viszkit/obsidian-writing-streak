@@ -7,6 +7,7 @@ const defaultSettings = {
 	dailyGoal: 500,
 	heatmapColor: "#39d353",
 	showGoalMetCue: true,
+	excludedFolders: [],
 };
 
 function createStore(files: Record<string, string> = {}) {
@@ -106,6 +107,22 @@ test("missing primary data returns defaults", async () => {
 	assert.deepEqual(data.settings, defaultSettings);
 	assert.deepEqual(data.history, {});
 	assert.equal(data.activeDay.date, "2026-04-04");
+});
+
+test("missing excluded folders setting defaults to an empty list", () => {
+	const data = normalizePluginData({
+		settings: { dailyGoal: 750 },
+	}, defaultSettings, "2026-04-04", 2);
+
+	assert.deepEqual(data.settings.excludedFolders, []);
+});
+
+test("excluded folders setting is normalized", () => {
+	const data = normalizePluginData({
+		settings: { excludedFolders: [" /Zettelkasten/Notes ", "Zettelkasten/Notes/", "", "Refs"] },
+	}, defaultSettings, "2026-04-04", 2);
+
+	assert.deepEqual(data.settings.excludedFolders, ["Zettelkasten/Notes/", "Refs/"]);
 });
 
 test("invalid primary data returns defaults and ignores backup data", async () => {

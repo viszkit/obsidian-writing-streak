@@ -6,6 +6,7 @@ import {
 	hasDuplicateObservation,
 	initializeFileBaselineFromStoredSnapshot,
 	recordObservedFileWords,
+	removeTrackedFile,
 	renameTrackedFile,
 	rollTrackingStateToDate,
 } from "../src/tracking-state";
@@ -102,6 +103,52 @@ test("duplicate observations are suppressed", () => {
 	assert.equal(hasDuplicateObservation(state, "note.md", 10), true);
 	assert.equal(duplicate.changed, false);
 	assert.equal(duplicate.duplicate, true);
+});
+
+test("baseline lowers when a note is deleted below its starting point", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 1000, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 600, 2).state;
+
+	assert.equal(state.activeDay.files["note.md"].baselineWords, 600);
+	assert.equal(state.activeDay.files["note.md"].latestWords, 600);
+	assert.equal(getTodayTotal(state.activeDay), 0);
+});
+
+test("growth after deletion counts from the lowered baseline", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 1000, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 600, 2).state;
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 680, 3).state;
+
+	assert.equal(state.activeDay.files["note.md"].baselineWords, 600);
+	assert.equal(state.activeDay.files["note.md"].latestWords, 680);
+	assert.equal(getTodayTotal(state.activeDay), 80);
+});
+
+test("removing a tracked file removes its active-day contribution", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 100, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 180, 2).state;
+
+	const removed = removeTrackedFile(state, "note.md");
+
+	assert.equal(removed.changed, true);
+	assert.equal(removed.state.activeDay.files["note.md"], undefined);
+	assert.equal(hasDuplicateObservation(removed.state, "note.md", 180), false);
+	assert.equal(getTodayTotal(removed.state.activeDay), 0);
+});
+
+test("removed file starts fresh if it is observed again later", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 100, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 180, 2).state;
+	state = removeTrackedFile(state, "note.md").state;
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 300, 3).state;
+
+	assert.equal(state.activeDay.files["note.md"].baselineWords, 300);
+	assert.equal(state.activeDay.files["note.md"].latestWords, 300);
+	assert.equal(getTodayTotal(state.activeDay), 0);
 });
 
 test("rename moves active progress and last observed words", () => {

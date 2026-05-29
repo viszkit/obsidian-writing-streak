@@ -1,4 +1,5 @@
 import { createEmptyActiveDay, DailyRecord, mergeActiveDay, normalizeActiveDay, type ActiveDayData } from "./daily-progress";
+import { normalizeExcludedFolders } from "./settings";
 
 export interface PluginDataShape<TSettings> {
 	version?: number;
@@ -104,6 +105,17 @@ export function normalizePluginData<TSettings>(
 ): PluginDataShape<TSettings> {
 	const loaded = isPlainObject(loadedInput) ? loadedInput as LegacyShape<TSettings> : null;
 	const settings = Object.assign({}, defaultSettings, isPlainObject(loaded?.settings) ? loaded?.settings : {});
+	const settingsRecord = settings as Record<string, unknown>;
+	const defaultSettingsRecord = defaultSettings as Record<string, unknown>;
+	if (Array.isArray(settingsRecord.excludedFolders)) {
+		settingsRecord.excludedFolders = normalizeExcludedFolders(
+			settingsRecord.excludedFolders.filter((path): path is string => typeof path === "string")
+		);
+	} else if (Array.isArray(defaultSettingsRecord.excludedFolders)) {
+		settingsRecord.excludedFolders = normalizeExcludedFolders(
+			defaultSettingsRecord.excludedFolders.filter((path): path is string => typeof path === "string")
+		);
+	}
 	const history: Record<string, DailyRecord> = {};
 	for (const [dateKey, record] of Object.entries(loaded?.history ?? {})) {
 		const normalized = normalizeHistoryEntry(record, (settings as { dailyGoal?: number }).dailyGoal ?? 0);

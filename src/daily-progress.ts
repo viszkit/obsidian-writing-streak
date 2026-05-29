@@ -86,8 +86,9 @@ export function recordFileObservation(
 		});
 		return next;
 	}
+	const baselineWords = Math.min(existing.baselineWords, normalizedWords);
 	next.files[path] = {
-		baselineWords: existing.baselineWords,
+		baselineWords,
 		latestWords: normalizedWords,
 		latestObservedAt: Math.max(existing.latestObservedAt, observedAt),
 	};
@@ -97,8 +98,16 @@ export function recordFileObservation(
 		observedAt,
 		existingBaselineWords: existing.baselineWords,
 		existingLatestWords: existing.latestWords,
+		nextBaselineWords: baselineWords,
 		nextLatestWords: next.files[path].latestWords,
 	});
+	return next;
+}
+
+export function removeFileProgress(activeDay: ActiveDayData, path: string): ActiveDayData {
+	const next = normalizeActiveDay(activeDay.date, activeDay);
+	if (!next.files[path]) return activeDay;
+	delete next.files[path];
 	return next;
 }
 
