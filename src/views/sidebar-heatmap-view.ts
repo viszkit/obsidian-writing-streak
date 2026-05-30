@@ -1,6 +1,6 @@
 import { ItemView, Notice, WorkspaceLeaf, WorkspaceMobileDrawer, setIcon } from "obsidian";
 import { LEVEL_ALPHA, hexToRgba } from "../color";
-import { formatLocalizedDate, formatLocalizedNumber, isToday } from "../dates";
+import { dateToKey, formatLocalizedDate, formatLocalizedNumber, isToday } from "../dates";
 import type { WordGoalPluginApi } from "../plugin-api";
 import {
 	buildYearGrid,
@@ -15,8 +15,29 @@ import { DetailModal } from "./detail-modal";
 
 export const VIEW_TYPE_HEATMAP = "word-goal-heatmap-view";
 
+interface TodaySummaryElements {
+	container: HTMLElement;
+	count: HTMLElement;
+	goal: HTMLElement;
+	progress: HTMLElement;
+}
+
+interface StreakCardElements {
+	card: HTMLElement;
+	current: HTMLElement;
+	best: HTMLElement;
+}
+
 export class SidebarHeatmapView extends ItemView {
 	private shouldScrollToToday = false;
+	private renderedYear: number | null = null;
+	private renderedColor = "";
+	private renderedShowGoalMetCue: boolean | null = null;
+	private todaySummary: TodaySummaryElements | null = null;
+	private gridContainer: HTMLElement | null = null;
+	private heatmapCells = new Map<string, HTMLElement>();
+	private writingStreakCard: StreakCardElements | null = null;
+	private goalStreakCard: StreakCardElements | null = null;
 
 	constructor(leaf: WorkspaceLeaf, private readonly plugin: WordGoalPluginApi) {
 		super(leaf);
@@ -33,16 +54,37 @@ export class SidebarHeatmapView extends ItemView {
 	}
 
 	refresh() {
+		const year = new Date().getFullYear();
+		if (this.needsStructuralRender(year)) {
+			this.renderStructure(year);
+			return;
+		}
+
+		this.updateTodaySummary();
+		this.updateHeatmapCells(year);
+		this.updateStreakCards();
+	}
+
+	private needsStructuralRender(year: number): boolean {
+		return (
+			this.renderedYear !== year ||
+			this.renderedColor !== this.plugin.settings.heatmapColor ||
+			this.renderedShowGoalMetCue !== this.plugin.settings.showGoalMetCue ||
+			!this.todaySummary ||
+			!this.gridContainer ||
+			this.heatmapCells.size === 0 ||
+			!this.writingStreakCard ||
+			!this.goalStreakCard
+		);
+	}
+
+	private renderStructure(year: number) {
 		const root = this.contentEl;
 		const shouldScrollToToday = this.shouldScrollToToday;
-		const previousRootScrollTop = shouldScrollToToday ? 0 : root.scrollTop;
-		const previousGridScrollTop = shouldScrollToToday
-			? 0
-			: root.querySelector<HTMLElement>(".wg-sb-grid-container")?.scrollTop ?? 0;
+		this.resetElementCache();
 		root.empty();
 		root.addClass("wg-sidebar");
 
-		const year = new Date().getFullYear();
 		const history = this.plugin.data.history;
 		const color = this.plugin.settings.heatmapColor;
 
@@ -53,71 +95,38 @@ export class SidebarHeatmapView extends ItemView {
 		expandBtn.setAttribute("aria-label", "Open detailed stats");
 		expandBtn.addEventListener("click", () => new DetailModal(this.app, this.plugin).open());
 
-		const todayWords = this.plugin.todaysTotal();
-		const goal = this.plugin.settings.dailyGoal;
-		const isOverGoal = todayWords > goal;
-		const fillRatio = Math.min(todayWords / goal, 1);
-		const goalRatio = isOverGoal ? goal / todayWords : 1;
 		const todayEl = root.createDiv({ cls: "wg-sb-today" });
-		todayEl.style.setProperty("--wg-progress-color", color);
-		todayEl.style.setProperty("--wg-progress-color-soft", hexToRgba(color, 0.18));
-		todayEl.style.setProperty("--wg-progress-color-glow", hexToRgba(color, 0.32));
-		if (this.plugin.isGoalCelebrating()) {
-			todayEl.addClass("wg-sb-today-celebrate");
-		}
-		todayEl.createSpan({ text: `${todayWords}`, cls: "wg-sb-today-num" });
-		const goalEl = todayEl.createSpan({ text: ` / ${goal}`, cls: "wg-sb-today-goal" });
-		if (isOverGoal) {
-			goalEl.addClass("wg-sb-today-goal-overflow");
-		}
+		const countEl = todayEl.createSpan({ cls: "wg-sb-today-num" });
+		const goalEl = todayEl.createSpan({ cls: "wg-sb-today-goal" });
 		const progressBar = todayEl.createDiv({ cls: "wg-sb-progress" });
-		if (isOverGoal) {
-			progressBar.addClass("wg-sb-progress-overgoal");
-		}
-		progressBar.style.setProperty("--wg-progress-fill-ratio", String(fillRatio));
-		progressBar.style.setProperty("--wg-progress-goal-ratio", String(goalRatio));
-		progressBar.setAttribute("role", "progressbar");
-		progressBar.setAttribute("aria-label", "Today's writing progress");
-		progressBar.setAttribute("aria-valuemin", "0");
-		progressBar.setAttribute("aria-valuemax", String(Math.max(todayWords, goal)));
-		progressBar.setAttribute("aria-valuenow", String(todayWords));
-		progressBar.setAttribute("aria-valuetext", `${formatLocalizedNumber(todayWords)} Words Written, ${formatLocalizedNumber(goal)} Word Goal`);
 		const progressFill = progressBar.createDiv({ cls: "wg-sb-progress-fill" });
 		progressFill.setAttribute("aria-hidden", "true");
 		const progressDivider = progressBar.createDiv({ cls: "wg-sb-progress-divider" });
 		progressDivider.setAttribute("aria-hidden", "true");
+		this.todaySummary = {
+			container: todayEl,
+			count: countEl,
+			goal: goalEl,
+			progress: progressBar,
+		};
+		this.updateTodaySummary();
 
 		const max = yearMax(history, year);
-		const weeks = buildYearGrid(year);
-
 		const gridContainer = root.createDiv({ cls: "wg-sb-grid-container" });
+		this.gridContainer = gridContainer;
 		const grid = gridContainer.createDiv({ cls: "wg-sb-grid" });
 
-		for (let w = 0; w < weeks.length; w++) {
+		for (const week of buildYearGrid(year)) {
 			const row = grid.createDiv({ cls: "wg-sb-row" });
-			for (const slot of weeks[w]) {
+			for (const slot of week) {
 				if (!slot.date) {
 					row.createDiv({ cls: "wg-sb-cell wg-sb-blank" });
 					continue;
 				}
-				const slotDate = slot.date;
 
+				const slotDate = slot.date;
 				const { words, level, goalMet } = getHeatmapCellState(history, slotDate, max);
 				const cell = row.createDiv({ cls: "wg-sb-cell" });
-
-				if (level > 0) {
-					cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
-				} else {
-					cell.addClass("wg-sb-cell-empty");
-				}
-				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
-				if (isToday(slotDate)) {
-					cell.addClass("wg-day-today");
-					cell.style.setProperty("--wg-today-accent", color);
-				}
-
-				const dateStr = formatLocalizedDate(slotDate, { day: "numeric", month: "short" });
-				cell.dataset.tooltip = `${dateStr}: ${words}`;
 				cell.addClass("wg-tooltip");
 				cell.addClass("wg-sb-cell-clickable");
 				cell.tabIndex = 0;
@@ -134,8 +143,22 @@ export class SidebarHeatmapView extends ItemView {
 					event.preventDefault();
 					openDailyNote();
 				});
+
+				this.heatmapCells.set(dateToKey(slotDate), cell);
+				this.updateHeatmapCell(cell, slotDate, words, level, goalMet);
 			}
 		}
+
+		const streakSection = root.createDiv({ cls: "wg-sb-streak-section" });
+		const writing = calcStreaks(history, isWritingDay);
+		const goalMet = calcStreaks(history, isGoalMetDay);
+		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
+		this.writingStreakCard = this.streakCard(streakRow, "✍", "Writing Streak", writing.current, writing.longest, color);
+		this.goalStreakCard = this.streakCard(streakRow, "🎯", "Goal Streak", goalMet.current, goalMet.longest, color);
+
+		this.renderedYear = year;
+		this.renderedColor = color;
+		this.renderedShowGoalMetCue = this.plugin.settings.showGoalMetCue;
 
 		if (shouldScrollToToday) {
 			this.shouldScrollToToday = false;
@@ -143,19 +166,88 @@ export class SidebarHeatmapView extends ItemView {
 				const todayCell = gridContainer.querySelector<HTMLElement>(".wg-day-today");
 				todayCell?.scrollIntoView({ block: "center", inline: "nearest" });
 			});
+		}
+	}
+
+	private resetElementCache() {
+		this.todaySummary = null;
+		this.gridContainer = null;
+		this.heatmapCells.clear();
+		this.writingStreakCard = null;
+		this.goalStreakCard = null;
+	}
+
+	private updateTodaySummary() {
+		if (!this.todaySummary) return;
+		const todayWords = this.plugin.todaysTotal();
+		const goal = this.plugin.settings.dailyGoal;
+		const color = this.plugin.settings.heatmapColor;
+		const isOverGoal = todayWords > goal;
+		const fillRatio = Math.min(todayWords / goal, 1);
+		const goalRatio = isOverGoal ? goal / todayWords : 1;
+		const { container, count, goal: goalEl, progress } = this.todaySummary;
+
+		container.style.setProperty("--wg-progress-color", color);
+		container.style.setProperty("--wg-progress-color-soft", hexToRgba(color, 0.18));
+		container.style.setProperty("--wg-progress-color-glow", hexToRgba(color, 0.32));
+		container.toggleClass("wg-sb-today-celebrate", this.plugin.isGoalCelebrating());
+		count.textContent = `${todayWords}`;
+		goalEl.textContent = ` / ${goal}`;
+		goalEl.toggleClass("wg-sb-today-goal-overflow", isOverGoal);
+		progress.toggleClass("wg-sb-progress-overgoal", isOverGoal);
+		progress.style.setProperty("--wg-progress-fill-ratio", String(fillRatio));
+		progress.style.setProperty("--wg-progress-goal-ratio", String(goalRatio));
+		progress.setAttribute("role", "progressbar");
+		progress.setAttribute("aria-label", "Today's writing progress");
+		progress.setAttribute("aria-valuemin", "0");
+		progress.setAttribute("aria-valuemax", String(Math.max(todayWords, goal)));
+		progress.setAttribute("aria-valuenow", String(todayWords));
+		progress.setAttribute("aria-valuetext", `${formatLocalizedNumber(todayWords)} Words Written, ${formatLocalizedNumber(goal)} Word Goal`);
+	}
+
+	private updateHeatmapCells(year: number) {
+		const history = this.plugin.data.history;
+		const max = yearMax(history, year);
+		for (const week of buildYearGrid(year)) {
+			for (const slot of week) {
+				if (!slot.date) continue;
+				const cell = this.heatmapCells.get(dateToKey(slot.date));
+				if (!cell) continue;
+				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, max);
+				this.updateHeatmapCell(cell, slot.date, words, level, goalMet);
+			}
+		}
+	}
+
+	private updateHeatmapCell(cell: HTMLElement, date: Date, words: number, level: number, goalMet: boolean) {
+		const color = this.plugin.settings.heatmapColor;
+		if (level > 0) {
+			cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
+			cell.removeClass("wg-sb-cell-empty");
 		} else {
-			window.requestAnimationFrame(() => {
-				root.scrollTop = previousRootScrollTop;
-				gridContainer.scrollTop = previousGridScrollTop;
-			});
+			cell.style.backgroundColor = "";
+			cell.addClass("wg-sb-cell-empty");
+		}
+		cell.toggleClass("wg-cell-goal-met", goalMet && this.plugin.settings.showGoalMetCue);
+		const today = isToday(date);
+		cell.toggleClass("wg-day-today", today);
+		if (today) {
+			cell.style.setProperty("--wg-today-accent", color);
+		} else {
+			cell.style.removeProperty("--wg-today-accent");
 		}
 
-		const streakSection = root.createDiv({ cls: "wg-sb-streak-section" });
+		const dateStr = formatLocalizedDate(date, { day: "numeric", month: "short" });
+		cell.dataset.tooltip = `${dateStr}: ${words}`;
+	}
+
+	private updateStreakCards() {
+		if (!this.writingStreakCard || !this.goalStreakCard) return;
+		const history = this.plugin.data.history;
 		const writing = calcStreaks(history, isWritingDay);
 		const goalMet = calcStreaks(history, isGoalMetDay);
-		const streakRow = streakSection.createDiv({ cls: "wg-sb-streaks" });
-		this.streakCard(streakRow, "✍", "Writing Streak", writing.current, writing.longest, color);
-		this.streakCard(streakRow, "🎯", "Goal Streak", goalMet.current, goalMet.longest, color);
+		this.updateStreakCard(this.writingStreakCard, writing.current, writing.longest);
+		this.updateStreakCard(this.goalStreakCard, goalMet.current, goalMet.longest);
 	}
 
 	private async openDailyNoteFromSidebar(date: Date): Promise<void> {
@@ -194,7 +286,7 @@ export class SidebarHeatmapView extends ItemView {
 		this.app.workspace.rightSplit.collapse();
 	}
 
-	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number, color: string) {
+	private streakCard(parent: HTMLElement, icon: string, title: string, current: number, longest: number, color: string): StreakCardElements {
 		const state = getStreakCardState(current, longest);
 		const card = parent.createDiv({ cls: "wg-sb-streak-card" });
 		card.addClass(`wg-sb-streak-card-${state}`);
@@ -205,7 +297,21 @@ export class SidebarHeatmapView extends ItemView {
 		const header = card.createDiv({ cls: "wg-sb-streak-card-header" });
 		header.createSpan({ text: icon, cls: "wg-sb-streak-card-icon" });
 		header.createSpan({ text: title, cls: "wg-sb-streak-card-title" });
-		card.createDiv({ text: `${current} Days`, cls: "wg-sb-streak-card-current" });
-		card.createDiv({ text: `Best: ${longest} Days`, cls: "wg-sb-streak-card-best" });
+		const currentEl = card.createDiv({ text: `${current} Days`, cls: "wg-sb-streak-card-current" });
+		const bestEl = card.createDiv({ text: `Best: ${longest} Days`, cls: "wg-sb-streak-card-best" });
+		return { card, current: currentEl, best: bestEl };
+	}
+
+	private updateStreakCard(elements: StreakCardElements, current: number, longest: number) {
+		const color = this.plugin.settings.heatmapColor;
+		const state = getStreakCardState(current, longest);
+		elements.card.removeClass("wg-sb-streak-card-idle", "wg-sb-streak-card-active", "wg-sb-streak-card-best-active");
+		elements.card.addClass(`wg-sb-streak-card-${state}`);
+		elements.card.style.setProperty("--wg-streak-accent", color);
+		elements.card.style.setProperty("--wg-streak-accent-soft", hexToRgba(color, 0.35));
+		elements.card.style.setProperty("--wg-streak-accent-strong", hexToRgba(color, 0.95));
+		elements.card.style.setProperty("--wg-streak-text-accent", state === "best-active" ? color : hexToRgba(color, 0.8));
+		elements.current.textContent = `${current} Days`;
+		elements.best.textContent = `Best: ${longest} Days`;
 	}
 }
