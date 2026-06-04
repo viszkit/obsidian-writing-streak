@@ -45,7 +45,8 @@ Settings:
 - **Daily word goal**: number of new words required before the webhook fires.
 - **Heatmap colour**: choose one of the built-in color presets.
 - **Goal-met visual cue**: show or hide the marker on days where the goal was reached.
-- **Excluded folders**: one folder path per line, such as `Zettelkasten/Notes/`. Notes inside these folders are ignored silently and removed from today's active count if they were already tracked.
+- **Only include listed folders**: toggle folder filtering between excluding the listed folders and counting only the listed folders.
+- **Folder list**: one folder path per line, such as `Zettelkasten/Notes/`. Changing the list or mode removes newly filtered notes from today's active count.
 
 When the goal is reached, the plugin sends a `POST` request with a JSON payload like:
 

@@ -57,6 +57,15 @@ export class WordGoalSettingTab extends PluginSettingTab {
 		this.plugin.refreshUi();
 	}
 
+	private async persistFolderFilterMode(includeOnly: boolean) {
+		this.plugin.settings.folderFilterMode = includeOnly ? "include" : "exclude";
+		this.plugin.pruneExcludedTrackedFiles();
+		this.plugin.syncTodayHistory();
+		this.plugin.markDirty({ refreshSidebar: true });
+		await this.plugin.flushSave();
+		this.plugin.refreshUi();
+	}
+
 	private async persistExcludedFolders(value: string) {
 		this.plugin.settings.excludedFolders = normalizeExcludedFolders(value.split(/\r?\n/));
 		this.plugin.pruneExcludedTrackedFiles();
@@ -170,14 +179,24 @@ export class WordGoalSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName("Counting").setHeading();
 
 		new Setting(containerEl)
-			.setName("Excluded folders")
-			.setDesc("One folder path per line. Notes inside these folders do not count toward daily progress.")
+			.setName("Only include listed folders")
+			.setDesc("Off: listed folders do not count. On: only listed folders count.")
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.folderFilterMode === "include")
+				.onChange((value) => {
+					void this.persistFolderFilterMode(value).catch((err) => console.error("Failed to save folder filter mode:", err));
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Folder list")
+			.setDesc("One folder path per line. The filter mode controls whether these folders are excluded or exclusively included.")
 			.addTextArea((text) => {
 				text
 					.setPlaceholder("Zettelkasten/Notes/")
 					.setValue(this.plugin.settings.excludedFolders.join("\n"))
 					.onChange((value) => {
-						void this.persistExcludedFolders(value).catch((err) => console.error("Failed to save excluded folders:", err));
+						void this.persistExcludedFolders(value).catch((err) => console.error("Failed to save folder list:", err));
 					});
 				text.inputEl.rows = 4;
 			});

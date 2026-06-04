@@ -7,6 +7,7 @@ const defaultSettings = {
 	dailyGoal: 500,
 	heatmapColor: "#39d353",
 	showGoalMetCue: true,
+	folderFilterMode: "exclude",
 	excludedFolders: [],
 };
 
@@ -115,6 +116,30 @@ test("missing excluded folders setting defaults to an empty list", () => {
 	}, defaultSettings, "2026-04-04", 2);
 
 	assert.deepEqual(data.settings.excludedFolders, []);
+});
+
+test("missing folder filter mode defaults to exclude", () => {
+	const data = normalizePluginData({
+		settings: { dailyGoal: 750 },
+	}, defaultSettings, "2026-04-04", 2);
+
+	assert.equal(data.settings.folderFilterMode, "exclude");
+});
+
+test("invalid folder filter mode defaults to exclude", () => {
+	const data = normalizePluginData({
+		settings: { folderFilterMode: "everything" },
+	}, defaultSettings, "2026-04-04", 2);
+
+	assert.equal(data.settings.folderFilterMode, "exclude");
+});
+
+test("include folder filter mode is preserved", () => {
+	const data = normalizePluginData({
+		settings: { folderFilterMode: "include" },
+	}, defaultSettings, "2026-04-04", 2);
+
+	assert.equal(data.settings.folderFilterMode, "include");
 });
 
 test("excluded folders setting is normalized", () => {
