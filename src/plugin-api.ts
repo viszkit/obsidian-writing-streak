@@ -9,6 +9,7 @@ export interface WordGoalPluginApi {
 	settings: WordGoalSettings;
 	todaysTotal(): number;
 	isGoalCelebrating(): boolean;
+	getActiveDailyNoteDateKey(): string | null;
 	openDailyNoteForDate(date: Date): Promise<OpenDailyNoteResult>;
 	sendTestWebhook(): Promise<void>;
 	syncTodayHistory(): void;

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { moment } from "obsidian";
+import "moment/locale/de";
 import {
 	applyImportedDailyWordCount,
 	buildDailyNoteImportDateKeys,
@@ -35,6 +37,19 @@ test("dailyNotePathToDateKey handles nested daily note formats", () => {
 		dailyNotePathToDateKey("Journal/2026/05/18.md", { folder: "Journal", format: "YYYY/MM/DD" }),
 		"2026-05-18"
 	);
+});
+
+test("dailyNotePathToDateKey supports localized weekday and month names", () => {
+	const previousLocale = moment.locale();
+	moment.locale("de");
+	try {
+		assert.equal(
+			dailyNotePathToDateKey("Journal/2026/05/Montag 18 Mai.md", { folder: "Journal", format: "YYYY/MM/dddd DD MMMM" }),
+			"2026-05-18"
+		);
+	} finally {
+		moment.locale(previousLocale);
+	}
 });
 
 test("dailyNotePathToDateKey supports formats that include the markdown extension", () => {

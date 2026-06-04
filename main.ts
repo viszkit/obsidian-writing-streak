@@ -1,8 +1,9 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import { PluginDataCoordinator } from "./src/data-sync";
-import { todayKey } from "./src/dates";
+import { dateToKey, todayKey } from "./src/dates";
 import { createEmptyActiveDay, getTodayTotal } from "./src/daily-progress";
-import { openDailyNoteForDate as openDailyNote } from "./src/daily-notes";
+import { openDailyNoteForDate as openDailyNote, resolveDailyNotePathConfig } from "./src/daily-notes";
+import { dailyNotePathToDateKey } from "./src/daily-note-import";
 import { importDailyNoteWordCounts as importDailyNoteWordCountsFromVault } from "./src/imports/daily-note-word-count-import";
 import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-word-count-import";
 import { importDailyStatsHistory, parseDailyStatsDayCounts } from "./src/imports/daily-stats-import";
@@ -34,6 +35,8 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private celebrateGoalTimer: number | null = null;
 	private visibilityDocument: Document | null = null;
 	private shouldOpenHeatmapOnFirstInstall = false;
+	private activeDailyNoteDateKey: string | null = null;
+	private activeDailyNoteRequestId = 0;
 
 	get settings(): WordGoalSettings { return this.data.settings; }
 
@@ -134,9 +137,15 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file) => {
-				if (!(file instanceof TFile)) return;
+				if (!(file instanceof TFile)) {
+					this.activeDailyNoteRequestId++;
+					this.setActiveDailyNoteDateKey(null);
+					return;
+				}
 				this.tracker.handleFileOpen(file);
 				this.updateStatusBar();
+				void this.updateActiveDailyNoteFromFile(file)
+					.catch((err) => console.error("Failed to update active daily note highlight:", err));
 			})
 		);
 
@@ -255,6 +264,28 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	isGoalCelebrating(): boolean {
 		return this.celebrateGoalUntil > Date.now();
+	}
+
+	getActiveDailyNoteDateKey(): string | null {
+		return this.activeDailyNoteDateKey;
+	}
+
+	private setActiveDailyNoteDateKey(dateKey: string | null): void {
+		if (this.activeDailyNoteDateKey === dateKey) return;
+		this.activeDailyNoteDateKey = dateKey;
+		this.refreshSidebar();
+	}
+
+	private async updateActiveDailyNoteFromFile(file: TFile): Promise<void> {
+		const requestId = ++this.activeDailyNoteRequestId;
+		const config = await resolveDailyNotePathConfig(this.app);
+		if (requestId !== this.activeDailyNoteRequestId) return;
+
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile?.path !== file.path) return;
+
+		const dateKey = config ? dailyNotePathToDateKey(file.path, config) : null;
+		this.setActiveDailyNoteDateKey(dateKey);
 	}
 
 	private triggerGoalCelebration() {
@@ -387,7 +418,11 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	}
 
 	async openDailyNoteForDate(date: Date): ReturnType<typeof openDailyNote> {
-		return openDailyNote(this.app, date);
+		const result = await openDailyNote(this.app, date);
+		if (result.opened) {
+			this.setActiveDailyNoteDateKey(dateToKey(date));
+		}
+		return result;
 	}
 
 	async loadPluginData() {

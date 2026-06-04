@@ -216,6 +216,13 @@
   background: var(--background-modifier-hover);
 }
 
+.wg-day-active-note {
+  box-shadow:
+    0 0 0 2px var(--background-primary),
+    0 0 0 4px var(--wg-active-note-accent, var(--interactive-accent));
+  z-index: 1;
+}
+
 .wg-sb-blank {
   background: transparent;
 }
