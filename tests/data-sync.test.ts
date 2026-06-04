@@ -8,6 +8,7 @@ const defaultSettings = {
 	dailyGoal: 500,
 	heatmapColor: "#39d353",
 	showGoalMetCue: true,
+	folderFilterMode: "exclude",
 };
 
 type TestSettings = typeof defaultSettings;

@@ -8,7 +8,7 @@ import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-wor
 import { importDailyStatsHistory, parseDailyStatsDayCounts } from "./src/imports/daily-stats-import";
 import type { WordGoalPluginApi } from "./src/plugin-api";
 import type { PluginDataShape } from "./src/plugin-data";
-import { DEFAULT_SETTINGS, isPathInExcludedFolder, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
+import { DEFAULT_SETTINGS, shouldCountPath, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
 import { WordGoalSettingTab } from "./src/settings-tab";
 import { TrackingController } from "./src/tracking-controller";
 import { renderStatusBar } from "./src/ui/status-bar";
@@ -55,7 +55,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			reloadSyncedData: () => this.reloadAndMergeSyncedPluginData(),
 			onProgressChanged: () => this.finalizeProgressChange(),
 			onPreviousDayFinalized: (dateKey, totalWords) => this.syncHistoryEntry(dateKey, totalWords),
-			isFileExcluded: (path) => isPathInExcludedFolder(path, this.settings.excludedFolders),
+			isFileExcluded: (path) => !shouldCountPath(path, this.settings.excludedFolders, this.settings.folderFilterMode),
 		});
 	}
 
