@@ -1,8 +1,11 @@
+export type FolderFilterMode = "exclude" | "include";
+
 export interface WordGoalSettings {
 	webhookUrl: string;
 	dailyGoal: number;
 	heatmapColor: string;
 	showGoalMetCue: boolean;
+	folderFilterMode: FolderFilterMode;
 	excludedFolders: string[];
 }
 
@@ -11,6 +14,7 @@ export const DEFAULT_SETTINGS: WordGoalSettings = {
 	dailyGoal: 500,
 	heatmapColor: "#39d353",
 	showGoalMetCue: true,
+	folderFilterMode: "exclude",
 	excludedFolders: [],
 };
 
@@ -44,7 +48,16 @@ export function normalizeExcludedFolders(paths: readonly string[]): string[] {
 	return normalized;
 }
 
-export function isPathInExcludedFolder(path: string, excludedFolders: readonly string[]): boolean {
+export function normalizeFolderFilterMode(value: unknown): FolderFilterMode {
+	return value === "include" ? "include" : "exclude";
+}
+
+function isPathInFolderList(path: string, folders: readonly string[]): boolean {
 	const normalizedPath = path.replace(/\\/g, "/").replace(/^\/+/, "");
-	return normalizeExcludedFolders(excludedFolders).some((folder) => normalizedPath.startsWith(folder));
+	return normalizeExcludedFolders(folders).some((folder) => normalizedPath.startsWith(folder));
+}
+
+export function shouldCountPath(path: string, folders: readonly string[], mode: FolderFilterMode): boolean {
+	const isListed = isPathInFolderList(path, folders);
+	return mode === "include" ? isListed : !isListed;
 }

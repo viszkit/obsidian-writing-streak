@@ -221,6 +221,7 @@ export class SidebarHeatmapView extends ItemView {
 
 	private updateHeatmapCell(cell: HTMLElement, date: Date, words: number, level: number, goalMet: boolean) {
 		const color = this.plugin.settings.heatmapColor;
+		const dateKey = dateToKey(date);
 		if (level > 0) {
 			cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
 			cell.removeClass("wg-sb-cell-empty");
@@ -235,6 +236,13 @@ export class SidebarHeatmapView extends ItemView {
 			cell.style.setProperty("--wg-today-accent", color);
 		} else {
 			cell.style.removeProperty("--wg-today-accent");
+		}
+		const activeDailyNote = this.plugin.getActiveDailyNoteDateKey() === dateKey;
+		cell.toggleClass("wg-day-active-note", activeDailyNote);
+		if (activeDailyNote) {
+			cell.style.setProperty("--wg-active-note-accent", color);
+		} else {
+			cell.style.removeProperty("--wg-active-note-accent");
 		}
 
 		const dateStr = formatLocalizedDate(date, { day: "numeric", month: "short" });

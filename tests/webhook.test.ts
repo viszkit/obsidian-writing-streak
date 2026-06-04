@@ -9,6 +9,7 @@ function settings(webhookUrl: string): WordGoalSettings {
 		dailyGoal: 500,
 		heatmapColor: "#39d353",
 		showGoalMetCue: true,
+		folderFilterMode: "exclude",
 		excludedFolders: [],
 	};
 }
