@@ -29,11 +29,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test
-        run: npm test
+      - name: Obsidian guideline lint
+        run: npm run lint:obsidian
 
       - name: Build
         run: npm run build
+
+      - name: Validate release metadata
+        run: npm run validate:release
+
+      - name: Test
+        run: npm test
 
       - name: Generate artifact attestations
         uses: actions/attest@v4

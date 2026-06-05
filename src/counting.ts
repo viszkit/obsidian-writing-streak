@@ -34,9 +34,8 @@ function getWordMatcher(): RegExp {
 	return wordMatcher;
 }
 
-function removeFrontmatterByMetadata(content: string, metadata?: CachedMetadata | null): string {
-	const typedMetadata = metadata as MetadataWithFrontmatterPosition | undefined | null;
-	const position = typedMetadata?.frontmatterPosition ?? typedMetadata?.frontmatter?.position;
+function removeFrontmatterByMetadata(content: string, metadata?: MetadataWithFrontmatterPosition | null): string {
+	const position = metadata?.frontmatterPosition ?? metadata?.frontmatter?.position;
 	const start = position?.start?.offset;
 	const end = position?.end?.offset;
 	if (typeof start === "number" && typeof end === "number" && start >= 0 && end > start) {

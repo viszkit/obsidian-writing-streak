@@ -286,7 +286,7 @@ export class SidebarHeatmapView extends ItemView {
 			new Notice(`Could not build a daily note path for ${dateStr}. Check your daily note format.`);
 			return;
 		}
-		new Notice("Configure Daily Notes or Periodic Notes to open heatmap days.");
+		new Notice("Configure daily notes or periodic notes to open heatmap days.");
 	}
 
 	private collapseMobileSidebar(): void {

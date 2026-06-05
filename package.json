@@ -1,6 +1,6 @@
 {
   "name": "obsidian-writing-tracker-heatmap-streaks",
-  "version": "3.3.3",
+  "version": "3.3.4",
   "description": "Writing tracker with heatmap, streaks, and webhook support",
   "main": "main.js",
   "license": "MIT",
@@ -17,12 +17,18 @@
     "build": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node",
     "dev": "esbuild main.ts --bundle --external:obsidian --outfile=main.js --format=cjs --platform=node --watch",
     "deploy:runtime": "sh scripts/deploy-runtime.sh",
+    "lint:obsidian": "eslint main.ts \"src/**/*.ts\" --max-warnings=0",
+    "validate:release": "node scripts/validate-release.mjs",
     "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --require ./tests/obsidian-stub.cjs --test .test-dist/tests/*.test.js"
   },
   "devDependencies": {
-    "esbuild": "^0.20.0",
-    "obsidian": "latest",
+    "@eslint/js": "^9.39.4",
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "esbuild": "^0.20.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.3.0",
+    "obsidian": "latest",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.60.1"
   }
 }

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Obsidian guideline lint
+        run: npm run lint:obsidian
+
+      - name: Build
+        run: npm run build
+
+      - name: Validate release metadata
+        run: npm run validate:release
+
+      - name: Test
+        run: npm test

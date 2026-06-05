@@ -101,52 +101,65 @@ export class WordGoalSettingTab extends PluginSettingTab {
 		return [
 			{
 				name: "Webhook",
-				render: (setting) => setting.setName("Webhook").setHeading(),
+				render: (setting) => {
+					setting.setName("Webhook").setHeading();
+				},
 			},
 			{
 				name: "Webhook URL",
-				desc: "POST endpoint for the daily goal notification. Requests are sent only to the URL you enter.",
-				render: (setting) => setting
-					.setName("Webhook URL")
-					.setDesc("POST endpoint for the daily goal notification. Requests are sent only to the URL you enter.")
-					.addText((text) => text
-						.setPlaceholder("https://hook.example.com/...")
-						.setValue(this.plugin.settings.webhookUrl)
-						.onChange((value) => {
-							void this.persistWebhookUrl(value).catch((err) => console.error("Failed to save webhook URL:", err));
-						})
-					),
+				desc: "Post endpoint for the daily goal notification. Requests are sent only to the URL you enter.",
+				render: (setting) => {
+					setting
+						.setName("Webhook URL")
+						.setDesc("Post endpoint for the daily goal notification. Requests are sent only to the URL you enter.")
+						.addText((text) => {
+							text
+								.setPlaceholder("Webhook endpoint")
+								.setValue(this.plugin.settings.webhookUrl)
+								.onChange((value) => {
+									void this.persistWebhookUrl(value).catch((err) => console.error("Failed to save webhook URL:", err));
+								});
+						});
+				},
 			},
 			{
 				name: "Test webhook",
 				desc: "Send one test payload to the configured webhook URL.",
-				render: (setting) => setting
-					.setName("Test webhook")
-					.setDesc("Send one test payload to the configured webhook URL.")
-					.addButton((button) => button
-						.setButtonText("Send test webhook")
-						.onClick(() => {
-							void this.runTestWebhook(button).catch((err) => console.error("Failed to send test webhook:", err));
-						})
-					),
+				render: (setting) => {
+					setting
+						.setName("Test webhook")
+						.setDesc("Send one test payload to the configured webhook URL.")
+						.addButton((button) => {
+							button
+								.setButtonText("Send test webhook")
+								.onClick(() => {
+									void this.runTestWebhook(button).catch((err) => console.error("Failed to send test webhook:", err));
+								});
+						});
+				},
 			},
 			{
 				name: "Daily word goal",
 				desc: "New words needed to trigger the webhook",
-				render: (setting) => setting
-					.setName("Daily word goal")
-					.setDesc("New words needed to trigger the webhook")
-					.addText((text) => text
-						.setPlaceholder("500")
-						.setValue(String(this.plugin.settings.dailyGoal))
-						.onChange((value) => {
-							void this.persistDailyWordGoal(value).catch((err) => console.error("Failed to save daily word goal:", err));
-						})
-					),
+				render: (setting) => {
+					setting
+						.setName("Daily word goal")
+						.setDesc("New words needed to trigger the webhook")
+						.addText((text) => {
+							text
+								.setPlaceholder("Word target")
+								.setValue(String(this.plugin.settings.dailyGoal))
+								.onChange((value) => {
+									void this.persistDailyWordGoal(value).catch((err) => console.error("Failed to save daily word goal:", err));
+								});
+						});
+				},
 			},
 			{
 				name: "Heatmap",
-				render: (setting) => setting.setName("Heatmap").setHeading(),
+				render: (setting) => {
+					setting.setName("Heatmap").setHeading();
+				},
 			},
 			{
 				name: "Heatmap colour",
@@ -182,70 +195,82 @@ export class WordGoalSettingTab extends PluginSettingTab {
 			{
 				name: "Custom hex colour",
 				desc: "Enter a 6-digit hex colour",
-				render: (setting) => setting
-					.setName("Custom hex colour")
-					.setDesc("Enter a 6-digit hex colour")
-					.addText((text) => {
-						const initialValue = currentIsPreset ? "" : currentColor;
-						text
-							.setPlaceholder("#ff6b6b")
-							.setValue(initialValue)
-							.onChange((value) => {
-								this.updateCustomColorInput(text.inputEl, value);
+				render: (setting) => {
+					setting
+						.setName("Custom hex colour")
+						.setDesc("Enter a 6-digit hex colour")
+						.addText((text) => {
+							const initialValue = currentIsPreset ? "" : currentColor;
+							text
+								.setPlaceholder("Custom colour")
+								.setValue(initialValue)
+								.onChange((value) => {
+									this.updateCustomColorInput(text.inputEl, value);
 
-								const normalized = normalizeHexColor(value);
-								if (!normalized) return;
+									const normalized = normalizeHexColor(value);
+									if (!normalized) return;
 
-								void this.applyHeatmapColor(normalized).catch((err) => console.error("Failed to save custom heatmap colour:", err));
-							});
-						this.updateCustomColorInput(text.inputEl, initialValue);
-					}),
+									void this.applyHeatmapColor(normalized).catch((err) => console.error("Failed to save custom heatmap colour:", err));
+								});
+							this.updateCustomColorInput(text.inputEl, initialValue);
+						});
+				},
 			},
 			{
 				name: "Goal-met visual cue",
 				desc: "Show the small marker on days where the daily word goal was met",
-				render: (setting) => setting
-					.setName("Goal-met visual cue")
-					.setDesc("Show the small marker on days where the daily word goal was met")
-					.addToggle((toggle) => toggle
-						.setValue(this.plugin.settings.showGoalMetCue)
-						.onChange((value) => {
-							void this.persistGoalMetCue(value).catch((err) => console.error("Failed to save goal-met cue setting:", err));
-						})
-					),
+				render: (setting) => {
+					setting
+						.setName("Goal-met visual cue")
+						.setDesc("Show the small marker on days where the daily word goal was met")
+						.addToggle((toggle) => {
+							toggle
+								.setValue(this.plugin.settings.showGoalMetCue)
+								.onChange((value) => {
+									void this.persistGoalMetCue(value).catch((err) => console.error("Failed to save goal-met cue setting:", err));
+								});
+						});
+				},
 			},
 			{
 				name: "Counting",
-				render: (setting) => setting.setName("Counting").setHeading(),
+				render: (setting) => {
+					setting.setName("Counting").setHeading();
+				},
 			},
 			{
 				name: "Only include listed folders",
 				desc: "Off: listed folders do not count. On: only listed folders count.",
-				render: (setting) => setting
-					.setName("Only include listed folders")
-					.setDesc("Off: listed folders do not count. On: only listed folders count.")
-					.addToggle((toggle) => toggle
-						.setValue(this.plugin.settings.folderFilterMode === "include")
-						.onChange((value) => {
-							void this.persistFolderFilterMode(value).catch((err) => console.error("Failed to save folder filter mode:", err));
-						})
-					),
+				render: (setting) => {
+					setting
+						.setName("Only include listed folders")
+						.setDesc("Off: listed folders do not count. On: only listed folders count.")
+						.addToggle((toggle) => {
+							toggle
+								.setValue(this.plugin.settings.folderFilterMode === "include")
+								.onChange((value) => {
+									void this.persistFolderFilterMode(value).catch((err) => console.error("Failed to save folder filter mode:", err));
+								});
+						});
+				},
 			},
 			{
 				name: "Folder list",
 				desc: "One folder path per line. The filter mode controls whether these folders are excluded or exclusively included.",
-				render: (setting) => setting
-					.setName("Folder list")
-					.setDesc("One folder path per line. The filter mode controls whether these folders are excluded or exclusively included.")
-					.addTextArea((text) => {
-						text
-							.setPlaceholder("Zettelkasten/Notes/")
-							.setValue(this.plugin.settings.excludedFolders.join("\n"))
-							.onChange((value) => {
-								void this.persistExcludedFolders(value).catch((err) => console.error("Failed to save folder list:", err));
-							});
-						text.inputEl.rows = 4;
-					}),
+				render: (setting) => {
+					setting
+						.setName("Folder list")
+						.setDesc("One folder path per line. The filter mode controls whether these folders are excluded or exclusively included.")
+						.addTextArea((text) => {
+							text
+								.setPlaceholder("Writing folder")
+								.setValue(this.plugin.settings.excludedFolders.join("\n"))
+								.onChange((value) => {
+									void this.persistExcludedFolders(value).catch((err) => console.error("Failed to save folder list:", err));
+								});
+							text.inputEl.rows = 4;
+						});
+				},
 			},
 		];
 	}

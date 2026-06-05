@@ -37,7 +37,7 @@ export class PluginDataCoordinator<TSettings> {
 			options.primaryPath,
 			options.defaultSettings,
 			options.version,
-			options.getTodayKey
+			() => options.getTodayKey()
 		);
 	}
 
