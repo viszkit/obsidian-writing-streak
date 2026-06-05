@@ -40,6 +40,7 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--wg-status-dot-color, #555555);
   transition: background-color 0.4s ease;
 }
 
@@ -191,6 +192,7 @@
   min-width: 0;
   border-radius: 2px;
   position: relative;
+  background: var(--wg-cell-bg, transparent);
 }
 
 .wg-sb-cell-clickable {
@@ -213,7 +215,7 @@
 }
 
 .wg-sb-cell-empty {
-  background: var(--background-modifier-hover);
+  --wg-cell-bg: var(--background-modifier-hover);
 }
 
 .wg-day-active-note {
@@ -398,7 +400,7 @@
   font-size: 1.3em;
   font-weight: 700;
   line-height: 1.2;
-  /* color is set inline from JS */
+  color: var(--wg-dt-stat-color, var(--text-normal));
 }
 
 .wg-dt-stat-label {
@@ -458,10 +460,11 @@
   height: 11px;
   border-radius: 2px;
   position: relative;
+  background: var(--wg-cell-bg, transparent);
 }
 
 .wg-dt-cell-zero {
-  background: var(--background-modifier-hover);
+  --wg-cell-bg: var(--background-modifier-hover);
 }
 
 .wg-dt-blank {
@@ -532,6 +535,8 @@
 
 .wg-dt-bar {
   height: 100%;
+  width: var(--wg-dt-bar-width, 0%);
+  background: var(--wg-dt-bar-color, var(--interactive-accent));
   border-radius: 3px;
   transition: width 0.3s ease;
   min-width: 0;
@@ -564,6 +569,7 @@
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid transparent;
+  background: var(--wg-swatch-color, transparent);
   transition: border-color 0.15s, transform 0.1s;
   box-sizing: border-box;
 }

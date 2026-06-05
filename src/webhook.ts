@@ -1,4 +1,4 @@
-import type { Notice, RequestUrlParam, requestUrl } from "obsidian";
+import { Notice as ObsidianNotice, requestUrl as obsidianRequestUrl, type RequestUrlParam } from "obsidian";
 import type { WordGoalSettings } from "./settings";
 
 export interface WordGoalWebhookPayload {
@@ -18,15 +18,14 @@ export interface SendWebhookOptions {
 }
 
 interface WebhookDependencies {
-	Notice: typeof Notice;
-	requestUrl: typeof requestUrl;
+	Notice: typeof ObsidianNotice;
+	requestUrl: typeof obsidianRequestUrl;
 }
 
 function getWebhookDependencies(): WebhookDependencies {
-	const obsidian = require("obsidian") as WebhookDependencies;
 	return {
-		Notice: obsidian.Notice,
-		requestUrl: obsidian.requestUrl,
+		Notice: ObsidianNotice,
+		requestUrl: obsidianRequestUrl,
 	};
 }
 

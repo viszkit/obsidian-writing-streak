@@ -14,6 +14,6 @@ export function renderStatusBar(
 
 	statusBarEl.empty();
 	const dot = statusBarEl.createSpan({ cls: "wg-sb-dot" });
-	dot.style.backgroundColor = dotColor;
+	dot.setCssProps({ "--wg-status-dot-color": dotColor });
 	statusBarEl.createSpan({ text: ` ${total} / ${goal}`, cls: "wg-sb-text" });
 }
