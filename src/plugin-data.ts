@@ -33,6 +33,8 @@ type AdapterLike = {
 };
 
 const DEBUG_PLUGIN_DATA_DIAGNOSTICS = false;
+const BACKUP_COUNT = 3;
+const MIN_BACKUP_HISTORY_DAYS = 2;
 
 function logPluginDataDiagnostic(event: string, details: Record<string, unknown>) {
 	if (!DEBUG_PLUGIN_DATA_DIAGNOSTICS) return;
@@ -61,6 +63,49 @@ function compareHistory(local: DailyRecord | undefined, incoming: DailyRecord | 
 	if (incomingUpdated > localUpdated) return { ...incoming };
 	if (localUpdated > incomingUpdated) return { ...local };
 	return incoming.totalWords > local.totalWords ? { ...incoming } : { ...local };
+}
+
+function backupPaths(primaryPath: string): string[] {
+	const basePath = primaryPath.endsWith(".json") ? primaryPath.slice(0, -".json".length) : primaryPath;
+	return Array.from({ length: BACKUP_COUNT }, (_, index) => `${basePath}.backup-${index + 1}.json`);
+}
+
+function nonZeroHistoryDays<TSettings>(data: PluginDataShape<TSettings>): number {
+	return Object.values(data.history).filter((record) => record.totalWords > 0).length;
+}
+
+function latestHistoryUpdatedAt<TSettings>(data: PluginDataShape<TSettings>): number {
+	let latest = 0;
+	for (const record of Object.values(data.history)) {
+		if (record.totalWords <= 0) continue;
+		latest = Math.max(latest, record.updatedAt ?? 0);
+	}
+	return latest;
+}
+
+function activeDayTrackedFileCount<TSettings>(data: PluginDataShape<TSettings>): number {
+	return Object.keys(data.activeDay.files).length;
+}
+
+function compareSnapshotRichness<TSettings>(
+	left: PluginDataShape<TSettings>,
+	right: PluginDataShape<TSettings>
+): number {
+	const leftHistoryDays = nonZeroHistoryDays(left);
+	const rightHistoryDays = nonZeroHistoryDays(right);
+	if (leftHistoryDays !== rightHistoryDays) return leftHistoryDays - rightHistoryDays;
+	const leftUpdatedAt = latestHistoryUpdatedAt(left);
+	const rightUpdatedAt = latestHistoryUpdatedAt(right);
+	if (leftUpdatedAt !== rightUpdatedAt) return leftUpdatedAt - rightUpdatedAt;
+	return activeDayTrackedFileCount(left) - activeDayTrackedFileCount(right);
+}
+
+function isBackupEligible<TSettings>(data: PluginDataShape<TSettings>): boolean {
+	return nonZeroHistoryDays(data) >= MIN_BACKUP_HISTORY_DAYS;
+}
+
+function serializePluginData<TSettings>(data: PluginDataShape<TSettings>): string {
+	return JSON.stringify(data, null, 2);
 }
 
 function migrateLegacyActiveDay<TSettings>(loaded: LegacyShape<TSettings> | null | undefined, today: string): ActiveDayData {
@@ -171,9 +216,38 @@ export class PluginDataStore<TSettings> {
 		}
 	}
 
+	private async readSnapshots(paths: string[]): Promise<Array<{ path: string; data: PluginDataShape<TSettings> }>> {
+		const snapshots: Array<{ path: string; data: PluginDataShape<TSettings> }> = [];
+		for (const path of paths) {
+			const data = await this.readAndValidate(path);
+			if (data) snapshots.push({ path, data });
+		}
+		return snapshots;
+	}
+
+	private bestSnapshot(
+		snapshots: Array<{ path: string; data: PluginDataShape<TSettings> }>
+	): { path: string; data: PluginDataShape<TSettings> } | null {
+		let best: { path: string; data: PluginDataShape<TSettings> } | null = null;
+		for (const snapshot of snapshots) {
+			if (!best || compareSnapshotRichness(snapshot.data, best.data) > 0) {
+				best = snapshot;
+			}
+		}
+		return best;
+	}
+
 	async loadBestAvailable(): Promise<{ data: PluginDataShape<TSettings>; sourcePath: string | null }> {
-		const data = await this.readAndValidate(this.primaryPath);
-		if (data) return { data, sourcePath: this.primaryPath };
+		const primary = await this.readAndValidate(this.primaryPath);
+		const bestBackup = this.bestSnapshot(await this.readSnapshots(backupPaths(this.primaryPath)));
+		if (primary && bestBackup && compareSnapshotRichness(bestBackup.data, primary) > 0) {
+			return {
+				data: this.merge(bestBackup.data, primary),
+				sourcePath: bestBackup.path,
+			};
+		}
+		if (primary) return { data: primary, sourcePath: this.primaryPath };
+		if (bestBackup) return { data: bestBackup.data, sourcePath: bestBackup.path };
 		return {
 			data: normalizePluginData(null, this.defaultSettings, this.getTodayKey(), this.version),
 			sourcePath: null,
@@ -184,7 +258,38 @@ export class PluginDataStore<TSettings> {
 		return mergePluginData(local, incoming, this.getTodayKey());
 	}
 
-	async saveSafely(data: PluginDataShape<TSettings>): Promise<void> {
-		await this.adapter.write(this.primaryPath, JSON.stringify(data, null, 2));
+	private async rotateBackups(candidate: PluginDataShape<TSettings>): Promise<void> {
+		const paths = backupPaths(this.primaryPath);
+		const existingBackups = await this.readSnapshots(paths);
+		const firstBackup = existingBackups.find((snapshot) => snapshot.path === paths[0]);
+		if (firstBackup && serializePluginData(firstBackup.data) === serializePluginData(candidate)) {
+			return;
+		}
+
+		for (let index = paths.length - 1; index > 0; index--) {
+			const previous = existingBackups.find((snapshot) => snapshot.path === paths[index - 1]);
+			if (previous) {
+				await this.adapter.write(paths[index], serializePluginData(previous.data));
+			}
+		}
+		await this.adapter.write(paths[0], serializePluginData(candidate));
+	}
+
+	async saveSafely(data: PluginDataShape<TSettings>): Promise<PluginDataShape<TSettings>> {
+		let dataToWrite = data;
+		const primary = await this.readAndValidate(this.primaryPath);
+		const bestBackup = this.bestSnapshot(await this.readSnapshots(backupPaths(this.primaryPath)));
+		if (bestBackup && compareSnapshotRichness(bestBackup.data, dataToWrite) > 0) {
+			dataToWrite = this.merge(bestBackup.data, dataToWrite);
+		}
+		if (
+			primary &&
+			isBackupEligible(primary) &&
+			(!bestBackup || compareSnapshotRichness(primary, bestBackup.data) >= 0)
+		) {
+			await this.rotateBackups(primary);
+		}
+		await this.adapter.write(this.primaryPath, serializePluginData(dataToWrite));
+		return dataToWrite;
 	}
 }

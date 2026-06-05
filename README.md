@@ -65,6 +65,7 @@ When the goal is reached, the plugin sends a `POST` request with a JSON payload 
 ## Data and privacy
 
 - Plugin data is stored in your vault under `.obsidian/plugins/word-goal-webhook/data.json`.
+- To reduce the risk of losing long-term writing history after a short sync-reset session, the plugin keeps three guarded local backups next to the main data file: `data.backup-1.json`, `data.backup-2.json`, and `data.backup-3.json`. Backup rotation starts only after the data has at least two non-zero history days, so a fresh or one-day reset state should not replace older useful backups.
 - If you sync your vault with iCloud, Dropbox, OneDrive, or another file-sync service, make sure the plugin data file is fully synced and available locally before starting Obsidian. If the sync provider temporarily presents `data.json` as missing, empty, stale, or conflicted, Obsidian can load the plugin as if it were a fresh install and a later save may overwrite your previous progress.
 - For iCloud specifically, keep your vault in `iCloud Drive/Obsidian/<Vault Name>`, mark the Obsidian folder as **Keep Downloaded** where available, avoid mixing iCloud with another sync service for the same vault, and consider Obsidian Sync or regular backups if the writing history is important to you.
 - The plugin makes network requests only when you configure a webhook URL. It sends `POST` requests only to the URL you enter when your daily goal is reached or when you click **Send test webhook**.
