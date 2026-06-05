@@ -43,9 +43,9 @@ export class SidebarHeatmapView extends ItemView {
 		super(leaf);
 	}
 
-	getViewType() { return VIEW_TYPE_HEATMAP; }
-	getDisplayText() { return "Writing heatmap"; }
-	getIcon() { return "flame"; }
+	getViewType(this: void) { return VIEW_TYPE_HEATMAP; }
+	getDisplayText(this: void) { return "Writing heatmap"; }
+	getIcon(this: void) { return "flame"; }
 
 	onOpen(): Promise<void> {
 		this.shouldScrollToToday = true;
@@ -187,16 +187,20 @@ export class SidebarHeatmapView extends ItemView {
 		const goalRatio = isOverGoal ? goal / todayWords : 1;
 		const { container, count, goal: goalEl, progress } = this.todaySummary;
 
-		container.style.setProperty("--wg-progress-color", color);
-		container.style.setProperty("--wg-progress-color-soft", hexToRgba(color, 0.18));
-		container.style.setProperty("--wg-progress-color-glow", hexToRgba(color, 0.32));
+		container.setCssProps({
+			"--wg-progress-color": color,
+			"--wg-progress-color-soft": hexToRgba(color, 0.18),
+			"--wg-progress-color-glow": hexToRgba(color, 0.32),
+		});
 		container.toggleClass("wg-sb-today-celebrate", this.plugin.isGoalCelebrating());
 		count.textContent = `${todayWords}`;
 		goalEl.textContent = ` / ${goal}`;
 		goalEl.toggleClass("wg-sb-today-goal-overflow", isOverGoal);
 		progress.toggleClass("wg-sb-progress-overgoal", isOverGoal);
-		progress.style.setProperty("--wg-progress-fill-ratio", String(fillRatio));
-		progress.style.setProperty("--wg-progress-goal-ratio", String(goalRatio));
+		progress.setCssProps({
+			"--wg-progress-fill-ratio": String(fillRatio),
+			"--wg-progress-goal-ratio": String(goalRatio),
+		});
 		progress.setAttribute("role", "progressbar");
 		progress.setAttribute("aria-label", "Today's writing progress");
 		progress.setAttribute("aria-valuemin", "0");
@@ -223,26 +227,26 @@ export class SidebarHeatmapView extends ItemView {
 		const color = this.plugin.settings.heatmapColor;
 		const dateKey = dateToKey(date);
 		if (level > 0) {
-			cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
+			cell.setCssProps({ "--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[level]) });
 			cell.removeClass("wg-sb-cell-empty");
 		} else {
-			cell.style.backgroundColor = "";
+			cell.setCssProps({ "--wg-cell-bg": "var(--background-modifier-hover)" });
 			cell.addClass("wg-sb-cell-empty");
 		}
 		cell.toggleClass("wg-cell-goal-met", goalMet && this.plugin.settings.showGoalMetCue);
 		const today = isToday(date);
 		cell.toggleClass("wg-day-today", today);
 		if (today) {
-			cell.style.setProperty("--wg-today-accent", color);
+			cell.setCssProps({ "--wg-today-accent": color });
 		} else {
-			cell.style.removeProperty("--wg-today-accent");
+			cell.setCssProps({ "--wg-today-accent": "var(--interactive-accent, var(--text-accent))" });
 		}
 		const activeDailyNote = this.plugin.getActiveDailyNoteDateKey() === dateKey;
 		cell.toggleClass("wg-day-active-note", activeDailyNote);
 		if (activeDailyNote) {
-			cell.style.setProperty("--wg-active-note-accent", color);
+			cell.setCssProps({ "--wg-active-note-accent": color });
 		} else {
-			cell.style.removeProperty("--wg-active-note-accent");
+			cell.setCssProps({ "--wg-active-note-accent": "var(--interactive-accent)" });
 		}
 
 		const dateStr = formatLocalizedDate(date, { day: "numeric", month: "short" });
@@ -298,10 +302,7 @@ export class SidebarHeatmapView extends ItemView {
 		const state = getStreakCardState(current, longest);
 		const card = parent.createDiv({ cls: "wg-sb-streak-card" });
 		card.addClass(`wg-sb-streak-card-${state}`);
-		card.style.setProperty("--wg-streak-accent", color);
-		card.style.setProperty("--wg-streak-accent-soft", hexToRgba(color, 0.35));
-		card.style.setProperty("--wg-streak-accent-strong", hexToRgba(color, 0.95));
-		card.style.setProperty("--wg-streak-text-accent", state === "best-active" ? color : hexToRgba(color, 0.8));
+		this.applyStreakCardColors(card, color, state);
 		const header = card.createDiv({ cls: "wg-sb-streak-card-header" });
 		header.createSpan({ text: icon, cls: "wg-sb-streak-card-icon" });
 		header.createSpan({ text: title, cls: "wg-sb-streak-card-title" });
@@ -315,11 +316,17 @@ export class SidebarHeatmapView extends ItemView {
 		const state = getStreakCardState(current, longest);
 		elements.card.removeClass("wg-sb-streak-card-idle", "wg-sb-streak-card-active", "wg-sb-streak-card-best-active");
 		elements.card.addClass(`wg-sb-streak-card-${state}`);
-		elements.card.style.setProperty("--wg-streak-accent", color);
-		elements.card.style.setProperty("--wg-streak-accent-soft", hexToRgba(color, 0.35));
-		elements.card.style.setProperty("--wg-streak-accent-strong", hexToRgba(color, 0.95));
-		elements.card.style.setProperty("--wg-streak-text-accent", state === "best-active" ? color : hexToRgba(color, 0.8));
+		this.applyStreakCardColors(elements.card, color, state);
 		elements.current.textContent = `${current} Days`;
 		elements.best.textContent = `Best: ${longest} Days`;
+	}
+
+	private applyStreakCardColors(card: HTMLElement, color: string, state: ReturnType<typeof getStreakCardState>): void {
+		card.setCssProps({
+			"--wg-streak-accent": color,
+			"--wg-streak-accent-soft": hexToRgba(color, 0.35),
+			"--wg-streak-accent-strong": hexToRgba(color, 0.95),
+			"--wg-streak-text-accent": state === "best-active" ? color : hexToRgba(color, 0.8),
+		});
 	}
 }

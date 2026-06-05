@@ -78,14 +78,14 @@ export class DetailModal extends Modal {
 				const cell = col.createDiv({ cls: "wg-dt-cell" });
 
 				if (level > 0) {
-					cell.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[level]);
+					cell.setCssProps({ "--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[level]) });
 				} else {
 					cell.addClass("wg-dt-cell-zero");
 				}
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
 				if (isToday(slot.date)) {
 					cell.addClass("wg-day-today");
-					cell.style.setProperty("--wg-today-accent", color);
+					cell.setCssProps({ "--wg-today-accent": color });
 				}
 
 				const dateStr = formatLocalizedDate(slot.date, {
@@ -100,7 +100,7 @@ export class DetailModal extends Modal {
 		legend.createSpan({ text: "Less", cls: "wg-dt-legend-text" });
 		for (let i = 0; i <= 4; i++) {
 			const c = legend.createDiv({ cls: "wg-dt-cell wg-dt-legend-cell" });
-			if (i > 0) c.style.backgroundColor = hexToRgba(color, LEVEL_ALPHA[i]);
+			if (i > 0) c.setCssProps({ "--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[i]) });
 			else c.addClass("wg-dt-cell-zero");
 		}
 		legend.createSpan({ text: "More", cls: "wg-dt-legend-text" });
@@ -116,8 +116,10 @@ export class DetailModal extends Modal {
 			row.createSpan({ text: MONTHS[i], cls: "wg-dt-month-name" });
 			const barWrap = row.createDiv({ cls: "wg-dt-bar-wrap" });
 			const bar = barWrap.createDiv({ cls: "wg-dt-bar" });
-			bar.style.width = `${(sums[i] / maxMonth) * 100}%`;
-			bar.style.backgroundColor = hexToRgba(color, 0.7);
+			bar.setCssProps({
+				"--wg-dt-bar-width": `${(sums[i] / maxMonth) * 100}%`,
+				"--wg-dt-bar-color": hexToRgba(color, 0.7),
+			});
 			row.createSpan({ text: formatLocalizedNumber(sums[i]), cls: "wg-dt-month-val" });
 		}
 	}
@@ -125,7 +127,7 @@ export class DetailModal extends Modal {
 	private statCard(parent: HTMLElement, value: string, label: string, color: string) {
 		const card = parent.createDiv({ cls: "wg-dt-stat" });
 		const num = card.createDiv({ text: value, cls: "wg-dt-stat-num" });
-		num.style.color = color;
+		num.setCssProps({ "--wg-dt-stat-color": color });
 		for (const line of label.split("\n")) {
 			card.createDiv({ text: line, cls: "wg-dt-stat-label" });
 		}
