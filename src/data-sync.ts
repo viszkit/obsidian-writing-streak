@@ -130,7 +130,7 @@ export class PluginDataCoordinator<TSettings> {
 			data = this.store.merge(data, diskData.data);
 			data = this.options.onDataMerged?.(data) ?? data;
 		}
-		await this.store.saveSafely(data);
+		data = await this.store.saveSafely(data);
 		const stat = await this.options.adapter.stat(this.options.primaryPath);
 		this.pluginDataMtime = stat?.mtime ?? this.pluginDataMtime;
 		return data;

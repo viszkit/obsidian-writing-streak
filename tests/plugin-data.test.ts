@@ -150,7 +150,7 @@ test("excluded folders setting is normalized", () => {
 	assert.deepEqual(data.settings.excludedFolders, ["Zettelkasten/Notes/", "Refs/"]);
 });
 
-test("invalid primary data returns defaults and ignores backup data", async () => {
+test("invalid primary data loads valid backup data", async () => {
 	const { store, writes } = createStore({
 		"data.json": "{",
 		"data.backup-1.json": JSON.stringify({
@@ -161,10 +161,37 @@ test("invalid primary data returns defaults and ignores backup data", async () =
 		}),
 	});
 	const { data, sourcePath } = await store.loadBestAvailable();
-	assert.equal(sourcePath, null);
-	assert.equal(data.settings.dailyGoal, defaultSettings.dailyGoal);
-	assert.deepEqual(data.history, {});
+	assert.equal(sourcePath, "data.backup-1.json");
+	assert.equal(data.settings.dailyGoal, 999);
+	assert.equal(data.history["2026-04-03"].totalWords, 999);
 	assert.deepEqual(writes, []);
+});
+
+test("richer backup is merged with poorer primary data on load", async () => {
+	const { store } = createStore({
+		"data.json": JSON.stringify({
+			settings: defaultSettings,
+			history: { "2026-04-04": { totalWords: 25, updatedAt: 30 } },
+			activeDay: { date: "2026-04-04", files: {} },
+			lastWebhookSentDate: "",
+		}),
+		"data.backup-1.json": JSON.stringify({
+			settings: defaultSettings,
+			history: {
+				"2026-04-02": { totalWords: 100, updatedAt: 10 },
+				"2026-04-03": { totalWords: 200, updatedAt: 20 },
+			},
+			activeDay: { date: "2026-04-04", files: {} },
+			lastWebhookSentDate: "",
+		}),
+	});
+
+	const { data, sourcePath } = await store.loadBestAvailable();
+
+	assert.equal(sourcePath, "data.backup-1.json");
+	assert.equal(data.history["2026-04-02"].totalWords, 100);
+	assert.equal(data.history["2026-04-03"].totalWords, 200);
+	assert.equal(data.history["2026-04-04"].totalWords, 25);
 });
 
 test("saveSafely writes only the primary data path", async () => {
@@ -179,4 +206,127 @@ test("saveSafely writes only the primary data path", async () => {
 	await store.saveSafely(data);
 	assert.deepEqual(writes.map((write) => write.path), ["data.json"]);
 	assert.equal(JSON.parse(writes[0].contents).settings.dailyGoal, 650);
+});
+
+test("one-day primary data does not rotate into backups", async () => {
+	const { store, writes } = createStore({
+		"data.json": JSON.stringify({
+			settings: defaultSettings,
+			history: { "2026-04-03": { totalWords: 100, updatedAt: 10 } },
+			activeDay: { date: "2026-04-04", files: {} },
+			lastWebhookSentDate: "",
+		}),
+	});
+	const data = normalizePluginData({
+		settings: defaultSettings,
+		history: { "2026-04-04": { totalWords: 50, updatedAt: 20 } },
+		activeDay: { date: "2026-04-04", files: {} },
+	}, defaultSettings, "2026-04-04", 2);
+
+	await store.saveSafely(data);
+
+	assert.deepEqual(writes.map((write) => write.path), ["data.json"]);
+});
+
+test("two-day primary data rotates into first backup before saving", async () => {
+	const primary = {
+		settings: defaultSettings,
+		history: {
+			"2026-04-02": { totalWords: 100, updatedAt: 10 },
+			"2026-04-03": { totalWords: 200, updatedAt: 20 },
+		},
+		activeDay: { date: "2026-04-04", files: {} },
+		lastWebhookSentDate: "",
+	};
+	const { store, writes } = createStore({ "data.json": JSON.stringify(primary) });
+	const data = normalizePluginData({
+		settings: defaultSettings,
+		history: {
+			...primary.history,
+			"2026-04-04": { totalWords: 50, updatedAt: 30 },
+		},
+		activeDay: { date: "2026-04-04", files: {} },
+	}, defaultSettings, "2026-04-04", 2);
+
+	await store.saveSafely(data);
+
+	assert.deepEqual(writes.map((write) => write.path), ["data.backup-1.json", "data.json"]);
+	assert.equal(JSON.parse(writes[0].contents).history["2026-04-03"].totalWords, 200);
+	assert.equal(JSON.parse(writes[1].contents).history["2026-04-04"].totalWords, 50);
+});
+
+test("backup rotation shifts existing backups", async () => {
+	const primary = {
+		settings: defaultSettings,
+		history: {
+			"2026-04-01": { totalWords: 100, updatedAt: 10 },
+			"2026-04-02": { totalWords: 200, updatedAt: 20 },
+			"2026-04-03": { totalWords: 300, updatedAt: 30 },
+		},
+		activeDay: { date: "2026-04-04", files: {} },
+		lastWebhookSentDate: "",
+	};
+	const backup1 = {
+		settings: defaultSettings,
+		history: {
+			"2026-04-01": { totalWords: 100, updatedAt: 10 },
+			"2026-04-02": { totalWords: 200, updatedAt: 20 },
+		},
+		activeDay: { date: "2026-04-04", files: {} },
+		lastWebhookSentDate: "",
+	};
+	const backup2 = {
+		settings: defaultSettings,
+		history: {
+			"2026-03-30": { totalWords: 80, updatedAt: 5 },
+			"2026-03-31": { totalWords: 90, updatedAt: 6 },
+		},
+		activeDay: { date: "2026-04-04", files: {} },
+		lastWebhookSentDate: "",
+	};
+	const { store, writes } = createStore({
+		"data.json": JSON.stringify(primary),
+		"data.backup-1.json": JSON.stringify(backup1),
+		"data.backup-2.json": JSON.stringify(backup2),
+	});
+	const data = normalizePluginData(primary, defaultSettings, "2026-04-04", 2);
+
+	await store.saveSafely(data);
+
+	assert.deepEqual(writes.map((write) => write.path), [
+		"data.backup-3.json",
+		"data.backup-2.json",
+		"data.backup-1.json",
+		"data.json",
+	]);
+	assert.equal(JSON.parse(writes[0].contents).history["2026-03-31"].totalWords, 90);
+	assert.equal(JSON.parse(writes[1].contents).history["2026-04-02"].totalWords, 200);
+	assert.equal(JSON.parse(writes[2].contents).history["2026-04-03"].totalWords, 300);
+});
+
+test("saving reset data with richer backup preserves backup history and today progress", async () => {
+	const { store, writes } = createStore({
+		"data.backup-1.json": JSON.stringify({
+			settings: defaultSettings,
+			history: {
+				"2026-04-02": { totalWords: 100, updatedAt: 10 },
+				"2026-04-03": { totalWords: 200, updatedAt: 20 },
+			},
+			activeDay: { date: "2026-04-04", files: {} },
+			lastWebhookSentDate: "",
+		}),
+	});
+	const data = normalizePluginData({
+		settings: defaultSettings,
+		history: { "2026-04-04": { totalWords: 50, updatedAt: 30 } },
+		activeDay: { date: "2026-04-04", files: {} },
+	}, defaultSettings, "2026-04-04", 2);
+
+	const saved = await store.saveSafely(data);
+
+	assert.deepEqual(writes.map((write) => write.path), ["data.json"]);
+	assert.equal(saved.history["2026-04-02"].totalWords, 100);
+	assert.equal(saved.history["2026-04-03"].totalWords, 200);
+	assert.equal(saved.history["2026-04-04"].totalWords, 50);
+	assert.equal(JSON.parse(writes[0].contents).history["2026-04-04"].totalWords, 50);
 });
