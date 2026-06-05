@@ -9,7 +9,6 @@ interface DeclarativeSettingDefinition {
 	render: (setting: Setting) => void;
 }
 
-// @ts-expect-error Obsidian 1.13 adds getSettingDefinitions, but the current public typings still require the legacy renderer.
 export class WordGoalSettingTab extends PluginSettingTab {
 	constructor(app: App, private readonly plugin: WordGoalPluginApi) {
 		super(app, plugin as never);
@@ -84,6 +83,14 @@ export class WordGoalSettingTab extends PluginSettingTab {
 
 	private refreshSettingsTab(): void {
 		(this as { update?: () => void }).update?.();
+	}
+
+	display(): void {
+		this.containerEl.empty();
+		for (const definition of this.getSettingDefinitions()) {
+			const setting = new Setting(this.containerEl);
+			definition.render(setting);
+		}
 	}
 
 	getSettingDefinitions(): DeclarativeSettingDefinition[] {

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-writing-tracker-heatmap-streaks",
-  "version": "3.3.2",
+  "version": "3.3.3",
   "description": "Writing tracker with heatmap, streaks, and webhook support",
   "main": "main.js",
   "license": "MIT",
