@@ -25,3 +25,11 @@ test("sidebar marks the active daily note cell without coupling it to today", ()
 	assert.match(source, /toggleClass\("wg-day-today", today\)/);
 	assert.match(source, /--wg-active-note-accent/);
 });
+
+test("sidebar heatmap stays responsive while capping and centering wide grids", () => {
+	const styles = readFileSync("styles.css", "utf8");
+	const gridRule = styles.match(/\.wg-sb-grid\s*\{(?<body>[^}]*)\}/)?.groups?.body ?? "";
+
+	assert.match(gridRule, /width:\s*min\(100%,\s*300px\)/);
+	assert.match(gridRule, /margin-inline:\s*auto/);
+});

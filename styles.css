@@ -179,6 +179,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: min(100%, 300px);
+  margin-inline: auto;
 }
 
 .wg-sb-row {
