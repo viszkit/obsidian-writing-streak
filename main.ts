@@ -6,7 +6,6 @@ import { openDailyNoteForDate as openDailyNote, resolveDailyNotePathConfig } fro
 import { dailyNotePathToDateKey } from "./src/daily-note-import";
 import { importDailyNoteWordCounts as importDailyNoteWordCountsFromVault } from "./src/imports/daily-note-word-count-import";
 import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-word-count-import";
-import { importDailyStatsHistory, parseDailyStatsDayCounts } from "./src/imports/daily-stats-import";
 import type { WordGoalPluginApi } from "./src/plugin-api";
 import type { PluginDataShape } from "./src/plugin-data";
 import { DEFAULT_SETTINGS, shouldCountPath, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
@@ -106,13 +105,6 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		});
 		this.addCommand({ id: "open-writing-stats", name: "Open writing stats", callback: () => new DetailModal(this.app, this).open() });
 		this.addCommand({ id: "show-daily-word-count", name: "Show today's word count", callback: () => new Notice(`Today: ${this.todaysTotal()} / ${this.settings.dailyGoal} Words`) });
-		this.addCommand({
-			id: "import-daily-stats",
-			name: "Import history from daily stats plugin",
-			callback: () => {
-				void this.importDailyStats().catch((err) => console.error("Failed to import Daily Stats history:", err));
-			},
-		});
 		this.addCommand({
 			id: "import-daily-note-word-counts",
 			name: "Import word counts from daily notes",
@@ -340,28 +332,6 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	async flushSave() {
 		this.data = await this.dataSync.flush(this.data);
-	}
-
-	private async importDailyStats() {
-		try {
-			const adapter = this.app.vault.adapter;
-			const path = `${this.app.vault.configDir}/plugins/obsidian-daily-stats/data.json`;
-			const exists = await adapter.exists(path);
-			if (!exists) {
-				new Notice("Daily stats plugin data.json not found.");
-				return;
-			}
-			const raw = await adapter.read(path);
-			const dayCounts = parseDailyStatsDayCounts(raw);
-			const { imported } = importDailyStatsHistory(this.data.history, dayCounts, this.settings.dailyGoal);
-
-			this.markDirty({ refreshSidebar: true });
-			await this.flushSave();
-			new Notice(`Imported ${imported} Days From Daily Stats.`);
-		} catch (err) {
-			console.error("Import error:", err);
-			new Notice("Import failed.");
-		}
 	}
 
 	private async importDailyNoteWordCounts(range: DailyNoteWordCountImportRange) {

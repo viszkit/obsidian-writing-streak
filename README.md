@@ -12,7 +12,6 @@ Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin tha
 - View a sidebar heatmap with today's count and current streaks.
 - Click a sidebar heatmap day to open the matching daily note, with the active daily note highlighted in the heatmap.
 - Open a detailed stats modal with yearly history and monthly totals.
-- Import past history from the `obsidian-daily-stats` plugin.
 - Import past word counts from configured daily notes.
 
 ## Installation
@@ -36,7 +35,6 @@ Commands:
 - `Open writing heatmap`
 - `Open writing stats`
 - `Show today's word count`
-- `Import history from daily stats plugin`
 - `Import word counts from daily notes`
 
 Settings:
