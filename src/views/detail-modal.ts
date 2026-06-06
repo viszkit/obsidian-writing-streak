@@ -1,5 +1,5 @@
 import { App, Modal } from "obsidian";
-import { LEVEL_ALPHA, hexToRgba } from "../color";
+import { LEVEL_ALPHA, getOverachieverColors, hexToRgba } from "../color";
 import { formatLocalizedDate, formatLocalizedNumber, isToday } from "../dates";
 import type { WordGoalPluginApi } from "../plugin-api";
 import {
@@ -7,7 +7,6 @@ import {
 	buildYearGrid,
 	getHeatmapCellState,
 	getMonthlySums,
-	yearMax,
 	yearStats,
 } from "../stats";
 
@@ -56,7 +55,7 @@ export class DetailModal extends Modal {
 		this.statCard(statsRow, `${stats.days}`, "Days Written", color);
 		this.statCard(statsRow, formatLocalizedNumber(stats.avg), "Daily Average", color);
 
-		const max = yearMax(history, year);
+		const dailyGoal = this.plugin.settings.dailyGoal;
 		const weeks = buildYearGrid(year);
 
 		const scrollWrap = contentEl.createDiv({ cls: "wg-dt-scroll-wrap" });
@@ -74,14 +73,18 @@ export class DetailModal extends Modal {
 			for (const slot of weeks[w]) {
 				if (!slot.date) { col.createDiv({ cls: "wg-dt-cell wg-dt-blank" }); continue; }
 
-				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, max);
+				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, dailyGoal);
 				const cell = col.createDiv({ cls: "wg-dt-cell" });
 
 				if (level > 0) {
-					cell.setCssProps({ "--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[level]) });
+					cell.setCssProps({
+						"--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[Math.min(level, 4)]),
+						...getOverachieverColors(color),
+					});
 				} else {
 					cell.addClass("wg-dt-cell-zero");
 				}
+				if (level === 5) cell.addClass("wg-cell-overachiever");
 				if (goalMet && this.plugin.settings.showGoalMetCue) cell.addClass("wg-cell-goal-met");
 				if (isToday(slot.date)) {
 					cell.addClass("wg-day-today");
@@ -98,9 +101,15 @@ export class DetailModal extends Modal {
 
 		const legend = contentEl.createDiv({ cls: "wg-dt-legend" });
 		legend.createSpan({ text: "Less", cls: "wg-dt-legend-text" });
-		for (let i = 0; i <= 4; i++) {
+		for (let i = 0; i <= 5; i++) {
 			const c = legend.createDiv({ cls: "wg-dt-cell wg-dt-legend-cell" });
-			if (i > 0) c.setCssProps({ "--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[i]) });
+			if (i > 0) {
+				c.setCssProps({
+					"--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[Math.min(i, 4)]),
+					...getOverachieverColors(color),
+				});
+				if (i === 5) c.addClass("wg-cell-overachiever");
+			}
 			else c.addClass("wg-dt-cell-zero");
 		}
 		legend.createSpan({ text: "More", cls: "wg-dt-legend-text" });

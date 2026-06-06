@@ -27,12 +27,14 @@ export function getStreakCardState(current: number, longest: number): StreakCard
 	return current === longest ? "best-active" : "active";
 }
 
-function intensityLevel(words: number, max: number): number {
+function intensityLevel(words: number, dailyGoal: number, goalMet: boolean): number {
 	if (words === 0) return 0;
-	const ratio = words / max;
-	if (ratio <= 0.25) return 1;
-	if (ratio <= 0.5) return 2;
-	if (ratio <= 0.75) return 3;
+	if (words >= dailyGoal * 1.5) return 5;
+	if (goalMet || words >= dailyGoal) return 4;
+	const ratio = words / dailyGoal;
+	if (ratio <= 1 / 3) return 1;
+	if (ratio <= 2 / 3) return 2;
+	if (ratio < 1) return 3;
 	return 4;
 }
 
@@ -123,14 +125,6 @@ export function isGoalMetDay(record: DailyRecord): boolean {
 	return record.goalMet === true;
 }
 
-export function yearMax(history: Record<string, DailyRecord>, year: number): number {
-	let max = 1;
-	for (const [key, rec] of Object.entries(history)) {
-		if (key.startsWith(`${year}-`) && rec.totalWords > max) max = rec.totalWords;
-	}
-	return max;
-}
-
 export function yearStats(history: Record<string, DailyRecord>, year: number): YearStats {
 	let total = 0, days = 0;
 	for (const [key, rec] of Object.entries(history)) {
@@ -152,15 +146,16 @@ export function getMonthlySums(history: Record<string, DailyRecord>, year: numbe
 export function getHeatmapCellState(
 	history: Record<string, DailyRecord>,
 	date: Date,
-	max: number
+	dailyGoal: number
 ): HeatmapCellState {
 	const key = dateToKey(date);
 	const record = history[key];
 	const words = record?.totalWords ?? 0;
+	const goalMet = record?.goalMet === true;
 	return {
 		words,
-		level: intensityLevel(words, max),
-		goalMet: record?.goalMet === true,
+		level: intensityLevel(words, dailyGoal, goalMet),
+		goalMet,
 	};
 }
 
