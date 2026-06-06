@@ -1,5 +1,5 @@
 import { ItemView, Notice, WorkspaceLeaf, WorkspaceMobileDrawer, setIcon } from "obsidian";
-import { LEVEL_ALPHA, hexToRgba } from "../color";
+import { LEVEL_ALPHA, getOverachieverColors, hexToRgba } from "../color";
 import { dateToKey, formatLocalizedDate, formatLocalizedNumber, isToday } from "../dates";
 import type { WordGoalPluginApi } from "../plugin-api";
 import {
@@ -9,7 +9,6 @@ import {
 	getStreakCardState,
 	isGoalMetDay,
 	isWritingDay,
-	yearMax,
 } from "../stats";
 import { DetailModal } from "./detail-modal";
 
@@ -111,7 +110,7 @@ export class SidebarHeatmapView extends ItemView {
 		};
 		this.updateTodaySummary();
 
-		const max = yearMax(history, year);
+		const dailyGoal = this.plugin.settings.dailyGoal;
 		const gridContainer = root.createDiv({ cls: "wg-sb-grid-container" });
 		this.gridContainer = gridContainer;
 		const grid = gridContainer.createDiv({ cls: "wg-sb-grid" });
@@ -125,7 +124,7 @@ export class SidebarHeatmapView extends ItemView {
 				}
 
 				const slotDate = slot.date;
-				const { words, level, goalMet } = getHeatmapCellState(history, slotDate, max);
+				const { words, level, goalMet } = getHeatmapCellState(history, slotDate, dailyGoal);
 				const cell = row.createDiv({ cls: "wg-sb-cell" });
 				cell.addClass("wg-tooltip");
 				cell.addClass("wg-sb-cell-clickable");
@@ -211,13 +210,13 @@ export class SidebarHeatmapView extends ItemView {
 
 	private updateHeatmapCells(year: number) {
 		const history = this.plugin.data.history;
-		const max = yearMax(history, year);
+		const dailyGoal = this.plugin.settings.dailyGoal;
 		for (const week of buildYearGrid(year)) {
 			for (const slot of week) {
 				if (!slot.date) continue;
 				const cell = this.heatmapCells.get(dateToKey(slot.date));
 				if (!cell) continue;
-				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, max);
+				const { words, level, goalMet } = getHeatmapCellState(history, slot.date, dailyGoal);
 				this.updateHeatmapCell(cell, slot.date, words, level, goalMet);
 			}
 		}
@@ -227,12 +226,16 @@ export class SidebarHeatmapView extends ItemView {
 		const color = this.plugin.settings.heatmapColor;
 		const dateKey = dateToKey(date);
 		if (level > 0) {
-			cell.setCssProps({ "--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[level]) });
+			cell.setCssProps({
+				"--wg-cell-bg": hexToRgba(color, LEVEL_ALPHA[Math.min(level, 4)]),
+				...getOverachieverColors(color),
+			});
 			cell.removeClass("wg-sb-cell-empty");
 		} else {
 			cell.setCssProps({ "--wg-cell-bg": "var(--background-modifier-hover)" });
 			cell.addClass("wg-sb-cell-empty");
 		}
+		cell.toggleClass("wg-cell-overachiever", level === 5);
 		cell.toggleClass("wg-cell-goal-met", goalMet && this.plugin.settings.showGoalMetCue);
 		const today = isToday(date);
 		cell.toggleClass("wg-day-today", today);
