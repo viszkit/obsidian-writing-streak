@@ -324,7 +324,7 @@
       var(--wg-overachiever-mid) 48%,
       var(--wg-overachiever-edge) 100%
     );
-  z-index: 1;
+  z-index: 3;
 }
 
 .wg-cell-overachiever::after {
@@ -333,10 +333,32 @@
   inset: -1px;
   border: 1px solid var(--wg-overachiever-border);
   border-radius: inherit;
-  box-shadow:
-    0 0 5px var(--wg-overachiever-glow),
-    0 0 10px var(--wg-overachiever-glow-soft);
   pointer-events: none;
+}
+
+.wg-sb-cell.wg-cell-overachiever::after {
+  box-shadow:
+    0 0 0 1px var(--wg-overachiever-glow-soft),
+    0 0 14px var(--wg-overachiever-glow),
+    0 0 28px var(--wg-overachiever-glow-soft);
+}
+
+.wg-dt-cell.wg-cell-overachiever::after {
+  box-shadow:
+    0 0 0 1px var(--wg-overachiever-glow-soft),
+    0 0 4px var(--wg-overachiever-glow),
+    0 0 8px var(--wg-overachiever-glow-soft);
+}
+
+.theme-light .wg-cell-overachiever::after {
+  border-color: var(--wg-overachiever-border-strong);
+}
+
+.theme-light .wg-sb-cell.wg-cell-overachiever::after {
+  box-shadow:
+    0 0 0 2px var(--wg-overachiever-border-strong),
+    0 0 14px var(--wg-overachiever-glow),
+    0 0 28px var(--wg-overachiever-glow-soft);
 }
 
 .wg-day-today {
