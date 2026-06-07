@@ -65,7 +65,7 @@ export class WordGoalSettingTab extends PluginSettingTab {
 
 	private async persistFolderFilterMode(includeOnly: boolean) {
 		this.plugin.settings.folderFilterMode = includeOnly ? "include" : "exclude";
-		this.plugin.pruneExcludedTrackedFiles();
+		this.plugin.reconcileTrackedFileFilter();
 		this.plugin.syncTodayHistory();
 		this.plugin.markDirty({ refreshSidebar: true });
 		await this.plugin.flushSave();
@@ -74,7 +74,7 @@ export class WordGoalSettingTab extends PluginSettingTab {
 
 	private async persistExcludedFolders(value: string) {
 		this.plugin.settings.excludedFolders = normalizeExcludedFolders(value.split(/\r?\n/));
-		this.plugin.pruneExcludedTrackedFiles();
+		this.plugin.reconcileTrackedFileFilter();
 		this.plugin.syncTodayHistory();
 		this.plugin.markDirty({ refreshSidebar: true });
 		await this.plugin.flushSave();

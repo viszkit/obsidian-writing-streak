@@ -1,6 +1,7 @@
 import {
 	createEmptyActiveDay,
 	getTodayTotal,
+	mergeFileProgress,
 	normalizeActiveDay,
 	recordFileObservation,
 	removeFileProgress,
@@ -13,6 +14,13 @@ export interface TrackingState {
 	activeDay: ActiveDayData;
 	lastObservedWordsByPath: Map<string, number>;
 }
+
+export interface SuspendedTrackedFile {
+	progress?: ActiveDayFileProgress;
+	lastObservedWords?: number;
+}
+
+export type SuspendedTrackedFiles = Map<string, SuspendedTrackedFile>;
 
 export interface DayRolloverResult {
 	state: TrackingState;
@@ -41,6 +49,12 @@ export interface FileRenameResult {
 
 export interface FileRemovalResult {
 	state: TrackingState;
+	changed: boolean;
+}
+
+export interface FileFilterReconciliationResult {
+	state: TrackingState;
+	suspendedFiles: SuspendedTrackedFiles;
 	changed: boolean;
 }
 
@@ -241,4 +255,50 @@ export function removeTrackedFilesWhere(
 	}
 
 	return { state: nextState, changed };
+}
+
+export function reconcileFileFiltering(
+	state: TrackingState,
+	suspendedFiles: SuspendedTrackedFiles,
+	isFileExcluded: (path: string) => boolean
+): FileFilterReconciliationResult {
+	let nextState = state;
+	const nextSuspendedFiles = new Map(suspendedFiles);
+	let changed = false;
+
+	for (const [path, suspended] of suspendedFiles) {
+		if (isFileExcluded(path)) continue;
+
+		const activeDay = normalizeActiveDay(nextState.activeDay.date, nextState.activeDay);
+		const restoredProgress = mergeFileProgress(activeDay.files[path], suspended.progress);
+		if (restoredProgress) {
+			activeDay.files[path] = restoredProgress;
+		}
+		const lastObservedWordsByPath = cloneLastObserved(nextState.lastObservedWordsByPath);
+		if (suspended.lastObservedWords !== undefined) {
+			lastObservedWordsByPath.set(path, suspended.lastObservedWords);
+		}
+		nextState = { activeDay, lastObservedWordsByPath };
+		nextSuspendedFiles.delete(path);
+		changed = true;
+	}
+
+	const activePaths = new Set([
+		...Object.keys(nextState.activeDay.files),
+		...nextState.lastObservedWordsByPath.keys(),
+	]);
+	for (const path of activePaths) {
+		if (!isFileExcluded(path)) continue;
+
+		nextSuspendedFiles.set(path, {
+			progress: nextState.activeDay.files[path]
+				? { ...nextState.activeDay.files[path] }
+				: undefined,
+			lastObservedWords: nextState.lastObservedWordsByPath.get(path),
+		});
+		nextState = removeTrackedFile(nextState, path).state;
+		changed = true;
+	}
+
+	return { state: nextState, suspendedFiles: nextSuspendedFiles, changed };
 }

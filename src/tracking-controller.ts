@@ -8,10 +8,11 @@ import {
 	hasDuplicateObservation,
 	initializeFileBaselineFromStoredSnapshot,
 	recordObservedFileWords,
+	reconcileFileFiltering,
 	removeTrackedFile,
-	removeTrackedFilesWhere,
 	renameTrackedFile,
 	rollTrackingStateToDate,
+	type SuspendedTrackedFiles,
 	type TrackingState,
 } from "./tracking-state";
 
@@ -58,6 +59,7 @@ export class TrackingController {
 	private readonly filePathByEditor = new Map<Editor, string>();
 	private readonly editorByFilePath = new Map<string, Editor>();
 	private readonly fileInitializationGate = new PathInFlightGate();
+	private suspendedFiles: SuspendedTrackedFiles = new Map();
 	private openViewSnapshotRetryTimer: number | null = null;
 	private hasCompletedInitialHydration = false;
 
@@ -71,6 +73,9 @@ export class TrackingController {
 	}
 
 	replaceActiveDay(activeDay: ActiveDayData, options: { preserveLastObserved: boolean }) {
+		if (activeDay.date !== this.state.activeDay.date) {
+			this.suspendedFiles.clear();
+		}
 		const lastObservedWordsByPath = options.preserveLastObserved
 			? this.state.lastObservedWordsByPath
 			: new Map<string, number>();
@@ -96,15 +101,11 @@ export class TrackingController {
 		if (!file || !(file instanceof TFile)) return;
 		const previousPath = this.filePathByEditor.get(editor);
 		if (this.deps.isFileExcluded(file.path)) {
-			const result = removeTrackedFilesWhere(
-				this.state,
-				(path) => path === file.path || path === previousPath
-			);
-			this.applyState(result.state);
+			const changed = this.suspendPaths((path) => path === file.path || path === previousPath);
 			this.filePathByEditor.delete(editor);
 			if (previousPath) this.editorByFilePath.delete(previousPath);
 			this.editorByFilePath.delete(file.path);
-			if (result.changed) this.deps.onProgressChanged();
+			if (changed) this.deps.onProgressChanged();
 			return;
 		}
 		if (previousPath && previousPath !== file.path) {
@@ -167,43 +168,47 @@ export class TrackingController {
 	handleFileRename(file: TFile, oldPath: string) {
 		if (!this.hasCompletedInitialHydration) return;
 		this.ensureCurrentDay();
-		if (this.deps.isFileExcluded(file.path)) {
-			const result = removeTrackedFilesWhere(
-				this.state,
-				(path) => path === oldPath || path === file.path
-			);
-			this.applyState(result.state);
-			const editor = this.editorByFilePath.get(oldPath);
-			if (editor) {
-				this.editorByFilePath.delete(oldPath);
-				this.filePathByEditor.delete(editor);
-			}
-			this.editorByFilePath.delete(file.path);
-			if (result.changed) {
-				this.deps.onProgressChanged();
-			}
-			return;
-		}
-		if (this.deps.isFileExcluded(oldPath)) {
-			this.editorByFilePath.delete(oldPath);
-			this.refreshMarkdownEditorCache();
-			return;
-		}
 		const result = renameTrackedFile(this.state, oldPath, file.path);
 		this.applyState(result.state);
+		const suspended = this.suspendedFiles.get(oldPath);
+		if (suspended) {
+			this.suspendedFiles.delete(oldPath);
+			this.suspendedFiles.set(file.path, suspended);
+		}
 		const editor = this.editorByFilePath.get(oldPath);
 		if (editor) {
 			this.editorByFilePath.delete(oldPath);
 			setTrackedEditorPath(this.filePathByEditor, this.editorByFilePath, editor, file.path);
 		}
-		if (result.changed) {
+		const filterChanged = this.reconcileFileFilter();
+		this.refreshMarkdownEditorCache();
+		if (result.changed && !filterChanged) {
 			this.deps.onProgressChanged();
 		}
 	}
 
-	pruneExcludedFiles(): boolean {
-		const result = removeTrackedFilesWhere(this.state, (path) => this.deps.isFileExcluded(path));
+	handleFileDelete(file: TFile) {
+		const result = removeTrackedFile(this.state, file.path);
 		this.applyState(result.state);
+		const removedSuspended = this.suspendedFiles.delete(file.path);
+		const editor = this.editorByFilePath.get(file.path);
+		if (editor) this.filePathByEditor.delete(editor);
+		this.editorByFilePath.delete(file.path);
+		if (result.changed || removedSuspended) {
+			this.deps.onProgressChanged();
+		}
+	}
+
+	reconcileFileFilter(): boolean {
+		this.ensureCurrentDay();
+		const result = reconcileFileFiltering(
+			this.state,
+			this.suspendedFiles,
+			(path) => this.deps.isFileExcluded(path)
+		);
+		this.suspendedFiles = result.suspendedFiles;
+		this.applyState(result.state);
+		this.refreshMarkdownEditorCache();
 		if (result.changed) {
 			this.deps.onProgressChanged();
 		}
@@ -236,6 +241,7 @@ export class TrackingController {
 			this.deps.onPreviousDayFinalized(result.previousDate, result.previousTotal);
 		}
 		if (result.changed) {
+			this.suspendedFiles.clear();
 			this.applyState(result.state);
 			if (this.hasCompletedInitialHydration) {
 				void this.finalizeOpenViewSnapshotsIfChanged("day rollover")
@@ -444,6 +450,17 @@ export class TrackingController {
 		if (result.changed) {
 			this.deps.onProgressChanged();
 		}
+		return result.changed;
+	}
+
+	private suspendPaths(shouldSuspend: (path: string) => boolean): boolean {
+		const result = reconcileFileFiltering(
+			this.state,
+			this.suspendedFiles,
+			(path) => shouldSuspend(path) || this.deps.isFileExcluded(path)
+		);
+		this.suspendedFiles = result.suspendedFiles;
+		this.applyState(result.state);
 		return result.changed;
 	}
 

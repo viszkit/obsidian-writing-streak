@@ -89,7 +89,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		this.dataCoordinator = this.createDataCoordinator();
 		await this.loadPluginData();
 		this.trackingController = this.createTrackingController();
-		this.pruneExcludedTrackedFiles();
+		this.reconcileTrackedFileFilter();
 		this.todaysTotal();
 		this.syncTodayHistory();
 
@@ -153,6 +153,13 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			this.app.vault.on("rename", (file, oldPath) => {
 				if (!(file instanceof TFile)) return;
 				this.tracker.handleFileRename(file, oldPath);
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				if (!(file instanceof TFile)) return;
+				this.tracker.handleFileDelete(file);
 			})
 		);
 
@@ -297,8 +304,8 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		this.refreshSidebar();
 	}
 
-	pruneExcludedTrackedFiles(): boolean {
-		return this.trackingController?.pruneExcludedFiles() ?? false;
+	reconcileTrackedFileFilter(): boolean {
+		return this.trackingController?.reconcileFileFilter() ?? false;
 	}
 
 	private getPluginDataPath(): string {
@@ -408,7 +415,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	private applyMergedData(data: PluginDataShape<WordGoalSettings>): PluginDataShape<WordGoalSettings> {
 		this.data = data;
 		this.trackingController?.replaceActiveDay(this.data.activeDay, { preserveLastObserved: true });
-		this.pruneExcludedTrackedFiles();
+		this.reconcileTrackedFileFilter();
 		this.syncTodayHistory();
 		return this.data;
 	}

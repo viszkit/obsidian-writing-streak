@@ -16,5 +16,5 @@ export interface WordGoalPluginApi {
 	markDirty(options?: { refreshSidebar?: boolean }): void;
 	flushSave(): Promise<void>;
 	refreshUi(): void;
-	pruneExcludedTrackedFiles(): boolean;
+	reconcileTrackedFileFilter(): boolean;
 }
