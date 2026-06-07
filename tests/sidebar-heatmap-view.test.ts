@@ -33,3 +33,27 @@ test("sidebar heatmap stays responsive while capping and centering wide grids", 
 	assert.match(gridRule, /width:\s*min\(100%,\s*300px\)/);
 	assert.match(gridRule, /margin-inline:\s*auto/);
 });
+
+test("heatmap tooltip label does not conflict with the overachiever glow pseudo-element", () => {
+	const sidebarSource = readFileSync("src/views/sidebar-heatmap-view.ts", "utf8");
+	const detailSource = readFileSync("src/views/detail-modal.ts", "utf8");
+	const styles = readFileSync("styles.css", "utf8");
+
+	assert.match(sidebarSource, /createSpan\(\{ cls: "wg-tooltip-label" \}\)/);
+	assert.match(sidebarSource, /tooltipLabel\.textContent = tooltip/);
+	assert.match(detailSource, /createSpan\(\{ cls: "wg-tooltip-label", text: tooltip \}\)/);
+	assert.match(styles, /\.wg-tooltip-label\s*\{/);
+	assert.match(styles, /\.wg-tooltip:hover > \.wg-tooltip-label/);
+	assert.match(styles, /\.wg-tooltip:focus-visible > \.wg-tooltip-label/);
+	assert.doesNotMatch(styles, /\.wg-tooltip:hover::after/);
+	assert.match(styles, /\.wg-cell-overachiever::after/);
+});
+
+test("hovered and focused tooltip cells stack above overachiever cells", () => {
+	const styles = readFileSync("styles.css", "utf8");
+	const tooltipStackRule = styles.match(
+		/\.wg-tooltip:hover,\s*\.wg-tooltip:focus-visible\s*\{(?<body>[^}]*)\}/,
+	)?.groups?.body ?? "";
+
+	assert.match(tooltipStackRule, /z-index:\s*4/);
+});

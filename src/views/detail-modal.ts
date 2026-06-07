@@ -94,7 +94,9 @@ export class DetailModal extends Modal {
 				const dateStr = formatLocalizedDate(slot.date, {
 					weekday: "short", day: "numeric", month: "short", year: "numeric",
 				});
-				cell.dataset.tooltip = `${dateStr}: ${words} Words`;
+				const tooltip = `${dateStr}: ${words} Words`;
+				cell.dataset.tooltip = tooltip;
+				cell.createSpan({ cls: "wg-tooltip-label", text: tooltip });
 				cell.addClass("wg-tooltip");
 			}
 		}

@@ -8,8 +8,12 @@
   position: relative;
 }
 
-.wg-tooltip:hover::after {
-  content: attr(data-tooltip);
+.wg-tooltip:hover,
+.wg-tooltip:focus-visible {
+  z-index: 4;
+}
+
+.wg-tooltip-label {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
@@ -24,6 +28,12 @@
   z-index: 1000;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  visibility: hidden;
+}
+
+.wg-tooltip:hover > .wg-tooltip-label,
+.wg-tooltip:focus-visible > .wg-tooltip-label {
+  visibility: visible;
 }
 
 /* ── Status bar dot ───────────────────────────────────────────────────────── */

@@ -128,6 +128,7 @@ export class SidebarHeatmapView extends ItemView {
 				const cell = row.createDiv({ cls: "wg-sb-cell" });
 				cell.addClass("wg-tooltip");
 				cell.addClass("wg-sb-cell-clickable");
+				cell.createSpan({ cls: "wg-tooltip-label" });
 				cell.tabIndex = 0;
 				cell.setAttribute("role", "button");
 
@@ -253,7 +254,10 @@ export class SidebarHeatmapView extends ItemView {
 		}
 
 		const dateStr = formatLocalizedDate(date, { day: "numeric", month: "short" });
-		cell.dataset.tooltip = `${dateStr}: ${words}`;
+		const tooltip = `${dateStr}: ${words}`;
+		cell.dataset.tooltip = tooltip;
+		const tooltipLabel = cell.querySelector<HTMLElement>(".wg-tooltip-label");
+		if (tooltipLabel) tooltipLabel.textContent = tooltip;
 	}
 
 	private updateStreakCards() {
