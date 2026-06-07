@@ -1,10 +1,9 @@
-# Writing Tracker Heatmap Streaks 3.3.5
+# Writing Tracker Heatmap Streaks 3.3.6
 
 ## What's Changed
 
-- Heatmap intensity is now anchored to the configured daily word goal instead of the year's highest word count, making colors consistent across days and years.
-- Days at or above 150% of the daily goal now receive a brighter overachiever treatment in both the sidebar heatmap and detailed stats view.
-- The sidebar heatmap now has a bounded, responsive width so wide histories remain centered and usable.
-- Removed the command and integration for importing history from the `obsidian-daily-stats` plugin. Existing imported history is preserved, and importing word counts from daily notes remains available.
+- Removing a folder from the exclusion list now immediately restores its tracked word-count contribution for the current day.
+- Strengthened the overachiever glow so days above 150% of the daily goal remain clearly visible.
+- Fixed heatmap tooltip layering so hovered and focused tooltips appear above glowing cells.
 
-**Full Changelog:** https://github.com/viszkit/obsidian-writing-streak/compare/3.3.4...3.3.5
+**Full Changelog:** https://github.com/viszkit/obsidian-writing-streak/compare/3.3.5...3.3.6
