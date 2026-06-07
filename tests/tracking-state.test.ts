@@ -6,6 +6,7 @@ import {
 	hasDuplicateObservation,
 	initializeFileBaselineFromStoredSnapshot,
 	recordObservedFileWords,
+	reconcileFileFiltering,
 	removeTrackedFile,
 	renameTrackedFile,
 	rollTrackingStateToDate,
@@ -149,6 +150,41 @@ test("removed file starts fresh if it is observed again later", () => {
 	assert.equal(state.activeDay.files["note.md"].baselineWords, 300);
 	assert.equal(state.activeDay.files["note.md"].latestWords, 300);
 	assert.equal(getTodayTotal(state.activeDay), 0);
+});
+
+test("folder filtering suspends and restores exact tracked progress", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "Drafts/note.md", 100, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "Drafts/note.md", 180, 2).state;
+
+	const suspended = reconcileFileFiltering(state, new Map(), (path) => path.startsWith("Drafts/"));
+	assert.equal(getTodayTotal(suspended.state.activeDay), 0);
+	assert.equal(suspended.suspendedFiles.size, 1);
+
+	const restored = reconcileFileFiltering(suspended.state, suspended.suspendedFiles, () => false);
+	assert.deepEqual(restored.state.activeDay.files["Drafts/note.md"], {
+		baselineWords: 100,
+		latestWords: 180,
+		latestObservedAt: 2,
+	});
+	assert.equal(hasDuplicateObservation(restored.state, "Drafts/note.md", 180), true);
+	assert.equal(getTodayTotal(restored.state.activeDay), 80);
+});
+
+test("repeated folder filter reconciliation does not duplicate progress", () => {
+	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
+	state = recordObservedFileWords(state, "2026-04-15", "Drafts/note.md", 100, 1).state;
+	state = recordObservedFileWords(state, "2026-04-15", "Drafts/note.md", 180, 2).state;
+
+	const firstSuspend = reconcileFileFiltering(state, new Map(), () => true);
+	const secondSuspend = reconcileFileFiltering(firstSuspend.state, firstSuspend.suspendedFiles, () => true);
+	const firstRestore = reconcileFileFiltering(secondSuspend.state, secondSuspend.suspendedFiles, () => false);
+	const secondRestore = reconcileFileFiltering(firstRestore.state, firstRestore.suspendedFiles, () => false);
+
+	assert.equal(secondSuspend.changed, false);
+	assert.equal(secondRestore.changed, false);
+	assert.equal(firstRestore.suspendedFiles.size, 0);
+	assert.equal(getTodayTotal(secondRestore.state.activeDay), 80);
 });
 
 test("rename moves active progress and last observed words", () => {
