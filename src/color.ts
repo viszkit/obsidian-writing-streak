@@ -32,6 +32,7 @@ export function getOverachieverColors(color: string): Record<string, string> {
 		"--wg-overachiever-mid": lerpColor(color, "#ffffff", 0.15),
 		"--wg-overachiever-edge": color,
 		"--wg-overachiever-border": hexToRgba(lerpColor(color, "#ffffff", 0.55), 0.8),
+		"--wg-overachiever-border-strong": hexToRgba(color, 0.95),
 		"--wg-overachiever-glow": hexToRgba(color, 0.75),
 		"--wg-overachiever-glow-soft": hexToRgba(color, 0.3),
 	};
