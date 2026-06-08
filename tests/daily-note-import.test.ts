@@ -10,6 +10,7 @@ import {
 	dailyNotePathToDateKey,
 } from "../src/daily-note-import";
 import type { DailyRecord } from "../src/daily-progress";
+import { importDailyNoteWordCounts } from "../src/imports/daily-note-word-count-import";
 
 test("dailyNotePathToDateKey matches configured folder and format", () => {
 	assert.equal(
@@ -102,6 +103,44 @@ test("daily note import modal submits through a native form", () => {
 	assert.match(source, /event\.preventDefault\(\)/);
 	assert.match(source, /type: "submit"/);
 	assert.doesNotMatch(source, /setButtonText\("Import"\)/);
+});
+
+test("daily note import counts each Han character", async () => {
+	const file = { path: "Journal/2026-05-18.md", extension: "md" };
+	const app = {
+		plugins: { plugins: {} },
+		internalPlugins: {
+			getPluginById: () => ({
+				instance: {
+					options: { folder: "Journal", format: "YYYY-MM-DD" },
+				},
+			}),
+		},
+		vault: {
+			configDir: ".obsidian",
+			adapter: {
+				exists: async () => false,
+				read: async () => "",
+			},
+			getAbstractFileByPath: (path: string) => path === file.path ? file : null,
+			cachedRead: async () => "你好世界",
+		},
+		metadataCache: {
+			getCache: () => null,
+		},
+	} as never;
+	const history: Record<string, DailyRecord> = {};
+
+	const result = await importDailyNoteWordCounts(
+		app,
+		history,
+		500,
+		{ startDate: "2026-05-18", endDate: "2026-05-18" },
+		10
+	);
+
+	assert.equal(result?.imported, 1);
+	assert.equal(history["2026-05-18"].totalWords, 4);
 });
 
 test("applyImportedDailyWordCount imports missing day", () => {

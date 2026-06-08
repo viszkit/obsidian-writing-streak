@@ -30,7 +30,30 @@ test("comments are excluded", () => {
 
 test("unicode words are counted", () => {
 	const content = "Grüße 東京 مرحبا";
-	assert.equal(countMeaningfulWords(content), 3);
+	assert.equal(countMeaningfulWords(content), 4);
+});
+
+test("each Han character counts as one word", () => {
+	assert.equal(countMeaningfulWords("你好世界"), 4);
+});
+
+test("Han characters combine with other words and numbers", () => {
+	assert.equal(countMeaningfulWords("Hello你好世界 123"), 6);
+	assert.equal(countMeaningfulWords("你好，世界！"), 4);
+});
+
+test("Han counting keeps Markdown exclusions", () => {
+	const content = [
+		"---",
+		"title: 隐藏",
+		"---",
+		"[你好](https://example.com) %% 世界 %%",
+		"```text",
+		"代码",
+		"```",
+		"朋友",
+	].join("\n");
+	assert.equal(countMeaningfulWords(content), 4);
 });
 
 test("wikilink aliases preserve readable text", () => {

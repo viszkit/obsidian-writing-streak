@@ -23,6 +23,7 @@ type MetadataWithFrontmatterPosition = CachedMetadata & {
 };
 
 let wordMatcher: RegExp | null = null;
+let hanMatcher: RegExp | null = null;
 
 function getWordMatcher(): RegExp {
 	if (wordMatcher) return wordMatcher;
@@ -32,6 +33,16 @@ function getWordMatcher(): RegExp {
 		wordMatcher = /[A-Za-z0-9]+(?:[-_'’][A-Za-z0-9]+)*/g;
 	}
 	return wordMatcher;
+}
+
+function getHanMatcher(): RegExp {
+	if (hanMatcher) return hanMatcher;
+	try {
+		hanMatcher = /\p{Script=Han}/gu;
+	} catch {
+		hanMatcher = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g;
+	}
+	return hanMatcher;
 }
 
 function removeFrontmatterByMetadata(content: string, metadata?: MetadataWithFrontmatterPosition | null): string {
@@ -111,6 +122,8 @@ export function countMeaningfulWords(
 	options: MeaningfulWordCountOptions = DEFAULT_COUNT_OPTIONS
 ): number {
 	const meaningful = extractMeaningfulText(content, metadata, options);
-	const matches = meaningful.match(getWordMatcher());
-	return matches?.length ?? 0;
+	const hanMatches = meaningful.match(getHanMatcher());
+	const withoutHan = meaningful.replace(getHanMatcher(), " ");
+	const otherMatches = withoutHan.match(getWordMatcher());
+	return (hanMatches?.length ?? 0) + (otherMatches?.length ?? 0);
 }

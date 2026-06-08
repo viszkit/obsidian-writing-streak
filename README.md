@@ -7,6 +7,7 @@ Writing Tracker Heatmap Streaks is an [Obsidian](https://obsidian.md) plugin tha
 ## Features
 
 - Track daily new words instead of total file length.
+- Count each Han character as one word, matching Obsidian's Chinese word count behavior.
 - Exclude reference/generated-note folders or count only selected writing folders.
 - Send a webhook when the configured daily word goal is reached.
 - View a sidebar heatmap with today's count and current streaks.
