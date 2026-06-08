@@ -1,9 +1,8 @@
-# Writing Tracker Heatmap Streaks 3.3.6
+# Writing Tracker Heatmap Streaks 3.3.7
 
 ## What's Changed
 
-- Removing a folder from the exclusion list now immediately restores its tracked word-count contribution for the current day.
-- Strengthened the overachiever glow so days above 150% of the daily goal remain clearly visible.
-- Fixed heatmap tooltip layering so hovered and focused tooltips appear above glowing cells.
+- Made the overachiever glow more subtle in the light-theme sidebar while preserving the existing dark-theme and detailed-view appearance.
+- Fixed hovered and keyboard-focused sidebar days stacking beneath the glow from neighboring overachiever cells.
 
-**Full Changelog:** https://github.com/viszkit/obsidian-writing-streak/compare/3.3.5...3.3.6
+**Full Changelog:** https://github.com/viszkit/obsidian-writing-streak/compare/3.3.6...3.3.7
