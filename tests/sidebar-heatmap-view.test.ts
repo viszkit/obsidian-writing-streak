@@ -49,11 +49,41 @@ test("heatmap tooltip label does not conflict with the overachiever glow pseudo-
 	assert.match(styles, /\.wg-cell-overachiever::after/);
 });
 
-test("hovered and focused tooltip cells stack above overachiever cells", () => {
+test("sidebar interaction states stack above overachiever cells", () => {
 	const styles = readFileSync("styles.css", "utf8");
 	const tooltipStackRule = styles.match(
 		/\.wg-tooltip:hover,\s*\.wg-tooltip:focus-visible\s*\{(?<body>[^}]*)\}/,
 	)?.groups?.body ?? "";
+	const hoverRule = styles.match(/\.wg-sb-cell-clickable:hover\s*\{(?<body>[^}]*)\}/)?.groups?.body ?? "";
+	const focusRule = styles.match(/\.wg-sb-cell-clickable:focus\s*\{(?<body>[^}]*)\}/)?.groups?.body ?? "";
+	const focusVisibleRule = styles.match(
+		/\.wg-sb-cell-clickable:focus-visible\s*\{(?<body>[^}]*)\}/,
+	)?.groups?.body ?? "";
 
 	assert.match(tooltipStackRule, /z-index:\s*4/);
+	assert.match(hoverRule, /z-index:\s*4/);
+	assert.match(focusRule, /z-index:\s*4/);
+	assert.match(focusVisibleRule, /z-index:\s*4/);
+});
+
+test("light-theme sidebar uses a subtle scoped overachiever glow", () => {
+	const styles = readFileSync("styles.css", "utf8");
+	const lightSidebarGlowRule = styles.match(
+		/\.theme-light \.wg-sb-cell\.wg-cell-overachiever::after\s*\{(?<body>[^}]*)\}/,
+	)?.groups?.body ?? "";
+	const darkSidebarGlowRule = styles.match(
+		/\.wg-sb-cell\.wg-cell-overachiever::after\s*\{(?<body>[^}]*)\}/,
+	)?.groups?.body ?? "";
+	const detailGlowRule = styles.match(
+		/\.wg-dt-cell\.wg-cell-overachiever::after\s*\{(?<body>[^}]*)\}/,
+	)?.groups?.body ?? "";
+
+	assert.match(lightSidebarGlowRule, /opacity:\s*0\.85/);
+	assert.match(lightSidebarGlowRule, /0 0 0 1px var\(--wg-overachiever-border-strong\)/);
+	assert.match(lightSidebarGlowRule, /0 0 8px var\(--wg-overachiever-glow\)/);
+	assert.match(lightSidebarGlowRule, /0 0 14px var\(--wg-overachiever-glow-soft\)/);
+	assert.match(darkSidebarGlowRule, /0 0 14px var\(--wg-overachiever-glow\)/);
+	assert.match(darkSidebarGlowRule, /0 0 28px var\(--wg-overachiever-glow-soft\)/);
+	assert.match(detailGlowRule, /0 0 4px var\(--wg-overachiever-glow\)/);
+	assert.match(detailGlowRule, /0 0 8px var\(--wg-overachiever-glow-soft\)/);
 });

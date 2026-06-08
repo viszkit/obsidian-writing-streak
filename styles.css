@@ -213,17 +213,17 @@
 
 .wg-sb-cell-clickable:hover {
   transform: translateY(-1px);
-  z-index: 2;
+  z-index: 4;
 }
 
 .wg-sb-cell-clickable:focus {
-  z-index: 2;
+  z-index: 4;
 }
 
 .wg-sb-cell-clickable:focus-visible {
   outline: 2px solid var(--interactive-accent, var(--text-accent));
   outline-offset: 1px;
-  z-index: 2;
+  z-index: 4;
 }
 
 .wg-sb-cell-empty {
@@ -365,10 +365,11 @@
 }
 
 .theme-light .wg-sb-cell.wg-cell-overachiever::after {
+  opacity: 0.85;
   box-shadow:
-    0 0 0 2px var(--wg-overachiever-border-strong),
-    0 0 14px var(--wg-overachiever-glow),
-    0 0 28px var(--wg-overachiever-glow-soft);
+    0 0 0 1px var(--wg-overachiever-border-strong),
+    0 0 8px var(--wg-overachiever-glow),
+    0 0 14px var(--wg-overachiever-glow-soft);
 }
 
 .wg-day-today {
