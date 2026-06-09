@@ -1,8 +1,8 @@
-# Writing Tracker Heatmap Streaks 3.3.8
+# Writing Tracker Heatmap Streaks 3.3.9
 
 ## What's Changed
 
-- Count each Han character as one word, so Chinese text matches Obsidian's native word count behavior.
-- Apply the same counting rule to live writing progress and Daily Note imports.
+- Restore installation and updates on Obsidian 1.12.3 and newer.
+- Keep the settings tab compatible with both legacy and declarative settings APIs.
 
-**Full Changelog:** https://github.com/viszkit/obsidian-writing-streak/compare/3.3.7...3.3.8
+**Full Changelog:** https://github.com/viszkit/obsidian-writing-streak/compare/3.3.8...3.3.9

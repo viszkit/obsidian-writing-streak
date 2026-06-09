@@ -82,7 +82,12 @@ export class WordGoalSettingTab extends PluginSettingTab {
 	}
 
 	private refreshSettingsTab(): void {
-		(this as { update?: () => void }).update?.();
+		const update = (this as { update?: () => void }).update;
+		if (update) {
+			update.call(this);
+		} else {
+			this.display();
+		}
 	}
 
 	display(): void {
