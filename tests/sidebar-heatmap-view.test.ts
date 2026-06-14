@@ -49,6 +49,15 @@ test("heatmap tooltip label does not conflict with the overachiever glow pseudo-
 	assert.match(styles, /\.wg-cell-overachiever::after/);
 });
 
+test("detail heatmap scroll area reserves vertical room for daily tooltips", () => {
+	const styles = readFileSync("styles.css", "utf8");
+	const scrollWrapRule = styles.match(/\.wg-dt-scroll-wrap\s*\{(?<body>[^}]*)\}/)?.groups?.body ?? "";
+
+	assert.match(scrollWrapRule, /overflow-x:\s*auto/);
+	assert.match(scrollWrapRule, /margin-top:\s*-30px/);
+	assert.match(scrollWrapRule, /padding-top:\s*30px/);
+});
+
 test("sidebar interaction states stack above overachiever cells", () => {
 	const styles = readFileSync("styles.css", "utf8");
 	const tooltipStackRule = styles.match(

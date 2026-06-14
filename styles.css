@@ -472,6 +472,8 @@
 /* Scroll wrapper — months + grid scroll together */
 .wg-dt-scroll-wrap {
   overflow-x: auto;
+  margin-top: -30px;
+  padding-top: 30px;
   padding-bottom: 4px;
 }
 
