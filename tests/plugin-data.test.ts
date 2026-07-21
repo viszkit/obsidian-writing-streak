@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PluginDataStore, normalizePluginData } from "../src/plugin-data";
+import { PluginDataStore, normalizePluginData, reconcileActiveDayWithHistory } from "../src/plugin-data";
+import { createEmptyActiveDay, getTodayTotal, recordFileObservation } from "../src/daily-progress";
 
 const defaultSettings = {
 	webhookUrl: "",
@@ -83,6 +84,31 @@ test("history goalMet defaults from goal threshold", () => {
 		history: { "2026-04-03": { totalWords: 600 } },
 	}, defaultSettings, "2026-04-04", 2);
 	assert.equal(data.history["2026-04-03"].goalMet, true);
+});
+
+test("current-day history repairs a counter reset by a stale synced baseline", () => {
+	let activeDay = createEmptyActiveDay("2026-04-04");
+	activeDay = recordFileObservation(activeDay, "2026-04-04", "note.md", 772, 30);
+	const repaired = reconcileActiveDayWithHistory(activeDay, {
+		"2026-04-04": { totalWords: 772, updatedAt: 40 },
+	}, "2026-04-04");
+
+	assert.equal(getTodayTotal(repaired), 772);
+	const afterMoreWriting = recordFileObservation(repaired, "2026-04-04", "note.md", 773, 50);
+	assert.equal(getTodayTotal(afterMoreWriting), 773);
+});
+
+test("loading corrupted current-day data restores the history total to the active counter", () => {
+	const data = normalizePluginData({
+		history: { "2026-04-04": { totalWords: 772, updatedAt: 40 } },
+		activeDay: {
+			date: "2026-04-04",
+			files: { "note.md": { baselineWords: 772, latestWords: 772, latestObservedAt: 30 } },
+		},
+	}, defaultSettings, "2026-04-04", 2);
+
+	assert.equal(getTodayTotal(data.activeDay), 772);
+	assert.equal(data.activeDay.recoveredWords, 772);
 });
 
 test("valid primary data loads from data.json", async () => {

@@ -210,10 +210,15 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	private syncHistoryEntry(dateKey: string, totalWords: number) {
 		const existing = this.data.history[dateKey];
-		if (totalWords > 0) {
+		// A recovered active day can temporarily receive stale file observations.
+		// Do not let them replace the durable total for the day currently in progress.
+		const resolvedTotal = dateKey === todayKey()
+			? Math.max(totalWords, existing?.totalWords ?? 0)
+			: totalWords;
+		if (resolvedTotal > 0) {
 			this.data.history[dateKey] = {
-				totalWords,
-				goalMet: existing?.goalMet === true || totalWords >= this.settings.dailyGoal,
+				totalWords: resolvedTotal,
+				goalMet: existing?.goalMet === true || resolvedTotal >= this.settings.dailyGoal,
 				updatedAt: Date.now(),
 			};
 			return;

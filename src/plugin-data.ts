@@ -1,4 +1,11 @@
-import { createEmptyActiveDay, DailyRecord, mergeActiveDay, normalizeActiveDay, type ActiveDayData } from "./daily-progress";
+import {
+	createEmptyActiveDay,
+	DailyRecord,
+	getTodayTotal,
+	mergeActiveDay,
+	normalizeActiveDay,
+	type ActiveDayData,
+} from "./daily-progress";
 import { normalizeExcludedFolders, normalizeFolderFilterMode } from "./settings";
 
 export interface PluginDataShape<TSettings> {
@@ -129,6 +136,7 @@ function migrateLegacyActiveDay<TSettings>(loaded: LegacyShape<TSettings> | null
 			baselineWords,
 			latestWords: Math.max(baselineWords, latestCandidate),
 			latestObservedAt: 0,
+			baselineProvenance: "legacy",
 		};
 		logPluginDataDiagnostic("migrate-legacy-file-progress", {
 			path,
@@ -140,6 +148,26 @@ function migrateLegacyActiveDay<TSettings>(loaded: LegacyShape<TSettings> | null
 		});
 	}
 	return legacyDate === today ? activeDay : createEmptyActiveDay(today);
+}
+
+/**
+ * History is the durable ledger for a day. If a stale synced active-day snapshot
+ * has raised a baseline, retain the missing amount as a carry so the counter and
+ * history agree and subsequent writing continues from the repaired total.
+ */
+export function reconcileActiveDayWithHistory(
+	activeDay: ActiveDayData,
+	history: Record<string, DailyRecord>,
+	today: string
+): ActiveDayData {
+	if (activeDay.date !== today) return activeDay;
+	const historyTotal = history[today]?.totalWords ?? 0;
+	const activeTotal = getTodayTotal(activeDay);
+	if (historyTotal <= activeTotal) return activeDay;
+	return {
+		...activeDay,
+		recoveredWords: (activeDay.recoveredWords ?? 0) + historyTotal - activeTotal,
+	};
 }
 
 export function normalizePluginData<TSettings>(
@@ -167,11 +195,12 @@ export function normalizePluginData<TSettings>(
 		const normalized = normalizeHistoryEntry(record, (settings as { dailyGoal?: number }).dailyGoal ?? 0);
 		if (normalized) history[dateKey] = normalized;
 	}
+	const activeDay = reconcileActiveDayWithHistory(migrateLegacyActiveDay(loaded, today), history, today);
 	return {
 		version,
 		settings,
 		history,
-		activeDay: migrateLegacyActiveDay(loaded, today),
+		activeDay,
 		lastWebhookSentDate: typeof loaded?.lastWebhookSentDate === "string" ? loaded.lastWebhookSentDate : "",
 	};
 }
@@ -192,6 +221,7 @@ export function mergePluginData<TSettings>(
 	for (const dateKey of Object.keys(incoming.history)) {
 		merged.history[dateKey] = compareHistory(local.history[dateKey], incoming.history[dateKey]) ?? merged.history[dateKey];
 	}
+	merged.activeDay = reconcileActiveDayWithHistory(merged.activeDay, merged.history, today);
 	return merged;
 }
 

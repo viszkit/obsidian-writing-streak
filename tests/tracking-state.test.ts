@@ -166,6 +166,7 @@ test("folder filtering suspends and restores exact tracked progress", () => {
 		baselineWords: 100,
 		latestWords: 180,
 		latestObservedAt: 2,
+		baselineProvenance: "observed",
 	});
 	assert.equal(hasDuplicateObservation(restored.state, "Drafts/note.md", 180), true);
 	assert.equal(getTodayTotal(restored.state.activeDay), 80);

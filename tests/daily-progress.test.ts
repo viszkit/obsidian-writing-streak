@@ -84,6 +84,20 @@ test("active-day merge keeps earliest baseline and newest latest count", () => {
 	assert.equal(getTodayTotal(merged), 50);
 });
 
+test("sync merge preserves real zero-baseline progress against a later prefilled snapshot", () => {
+	let written = createEmptyActiveDay("2026-04-04");
+	written = recordFileObservation(written, "2026-04-04", "note.md", 0, 10);
+	written = recordFileObservation(written, "2026-04-04", "note.md", 772, 20);
+
+	let reopened = createEmptyActiveDay("2026-04-04");
+	reopened = recordFileObservation(reopened, "2026-04-04", "note.md", 772, 30);
+
+	const merged = mergeActiveDay(written, reopened, "2026-04-04");
+	assert.equal(merged.files["note.md"].baselineWords, 0);
+	assert.equal(merged.files["note.md"].latestWords, 772);
+	assert.equal(getTodayTotal(merged), 772);
+});
+
 test("merge ignores partial zero baseline when latest matches a valid baseline snapshot", () => {
 	const merged = mergeActiveDay({
 		date: "2026-04-04",

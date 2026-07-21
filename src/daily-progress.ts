@@ -2,11 +2,15 @@ export interface ActiveDayFileProgress {
 	baselineWords: number;
 	latestWords: number;
 	latestObservedAt: number;
+	/** Whether this baseline was recorded by the current tracker or inferred from older data. */
+	baselineProvenance?: "observed" | "legacy";
 }
 
 export interface ActiveDayData {
 	date: string;
 	files: Record<string, ActiveDayFileProgress>;
+	/** Progress recovered from history when a stale synced snapshot reset file baselines. */
+	recoveredWords?: number;
 }
 
 export interface DailyRecord {
@@ -23,13 +27,16 @@ function logProgressDiagnostic(event: string, details: Record<string, unknown>) 
 }
 
 export function createEmptyActiveDay(date: string): ActiveDayData {
-	return { date, files: {} };
+	return { date, files: {}, recoveredWords: 0 };
 }
 
 export function normalizeActiveDay(date: string, value?: Partial<ActiveDayData> | null): ActiveDayData {
 	const normalized: ActiveDayData = {
 		date: typeof value?.date === "string" && value.date.length > 0 ? value.date : date,
 		files: {},
+		recoveredWords: typeof value?.recoveredWords === "number" && Number.isFinite(value.recoveredWords)
+			? Math.max(0, Math.floor(value.recoveredWords))
+			: 0,
 	};
 	for (const [path, file] of Object.entries(value?.files ?? {})) {
 		if (!file || typeof file !== "object") continue;
@@ -45,6 +52,7 @@ export function normalizeActiveDay(date: string, value?: Partial<ActiveDayData> 
 			latestObservedAt: typeof file.latestObservedAt === "number" && Number.isFinite(file.latestObservedAt)
 				? file.latestObservedAt
 				: 0,
+			baselineProvenance: file.baselineProvenance === "observed" ? "observed" : "legacy",
 		};
 		logProgressDiagnostic("normalize-file-progress", {
 			path,
@@ -76,6 +84,7 @@ export function recordFileObservation(
 			baselineWords,
 			latestWords: normalizedWords,
 			latestObservedAt: observedAt,
+			baselineProvenance: "observed",
 		};
 		logProgressDiagnostic("create-file-progress", {
 			path,
@@ -91,6 +100,7 @@ export function recordFileObservation(
 		baselineWords,
 		latestWords: normalizedWords,
 		latestObservedAt: Math.max(existing.latestObservedAt, observedAt),
+		baselineProvenance: "observed",
 	};
 	logProgressDiagnostic("update-file-progress", {
 		path,
@@ -112,6 +122,16 @@ export function removeFileProgress(activeDay: ActiveDayData, path: string): Acti
 }
 
 function chooseMergedBaseline(local: ActiveDayFileProgress, incoming: ActiveDayFileProgress): number {
+	if (local.baselineProvenance === "observed" && incoming.baselineProvenance === "observed") {
+		return Math.min(local.baselineWords, incoming.baselineWords);
+	}
+
+	// Older snapshots do not say how their baseline was created. Keep the previous
+	// safeguards for those ambiguous records, but never let them override a new,
+	// explicitly observed baseline.
+	if (local.baselineProvenance === "observed") return local.baselineWords;
+	if (incoming.baselineProvenance === "observed") return incoming.baselineWords;
+
 	const localLooksLikePartial = local.baselineWords === 0 && local.latestWords === incoming.latestWords && incoming.baselineWords > 0;
 	const incomingLooksLikePartial = incoming.baselineWords === 0 && incoming.latestWords === local.latestWords && local.baselineWords > 0;
 	const localLooksLikeEmptySnapshot = local.baselineWords === 0 && local.latestWords === 0 && incoming.baselineWords > 0;
@@ -136,6 +156,9 @@ export function mergeFileProgress(
 	const incomingTimestamp = incoming.latestObservedAt ?? 0;
 	const latest = incomingTimestamp > localTimestamp ? incoming.latestWords : local.latestWords;
 	const baselineWords = chooseMergedBaseline(local, incoming);
+	const baselineProvenance = local.baselineProvenance === "observed" || incoming.baselineProvenance === "observed"
+		? "observed"
+		: "legacy";
 	logProgressDiagnostic("merge-file-progress", {
 		local,
 		incoming,
@@ -146,6 +169,7 @@ export function mergeFileProgress(
 		baselineWords,
 		latestWords: Math.max(0, latest),
 		latestObservedAt: Math.max(localTimestamp, incomingTimestamp),
+		baselineProvenance,
 	};
 }
 
@@ -170,6 +194,7 @@ export function renameFileProgress(activeDay: ActiveDayData, oldPath: string, ne
 			baselineWords: existing.baselineWords,
 			latestWords: target.latestWords,
 			latestObservedAt: Math.max(target.latestObservedAt, existing.latestObservedAt),
+			baselineProvenance: existing.baselineProvenance,
 		};
 	} else {
 		next.files[newPath] = mergeFileProgress(target, existing) ?? existing;
@@ -179,7 +204,7 @@ export function renameFileProgress(activeDay: ActiveDayData, oldPath: string, ne
 }
 
 export function getTodayTotal(activeDay: ActiveDayData): number {
-	let total = 0;
+	let total = activeDay.recoveredWords ?? 0;
 	for (const progress of Object.values(activeDay.files)) {
 		total += Math.max(progress.latestWords - progress.baselineWords, 0);
 	}
