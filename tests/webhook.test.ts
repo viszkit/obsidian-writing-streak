@@ -55,3 +55,57 @@ test("configured webhook failures are not treated as handled", () => {
 	assert.equal(shouldMarkWebhookHandled(settings("https://hook.example.com"), false), false);
 	assert.equal(shouldMarkWebhookHandled(settings("https://hook.example.com"), true), true);
 });
+
+test("automatic webhook failures can be silent", async () => {
+	const notices: string[] = [];
+
+	class TestNotice {
+		constructor(message: string | DocumentFragment) {
+			notices.push(String(message));
+		}
+	}
+
+	const sent = await sendWebhook({ ...webhookOptions("https://hook.example.com"), notifyOnFailure: false }, {
+		Notice: TestNotice as never,
+		requestUrl: (() => Promise.reject(new Error("offline"))) as never,
+	});
+
+	assert.equal(sent, false);
+	assert.deepEqual(notices, []);
+});
+
+test("automatic webhook successes still show a success notice", async () => {
+	const notices: string[] = [];
+
+	class TestNotice {
+		constructor(message: string | DocumentFragment) {
+			notices.push(String(message));
+		}
+	}
+
+	const sent = await sendWebhook({ ...webhookOptions("https://hook.example.com"), notifyOnFailure: false }, {
+		Notice: TestNotice as never,
+		requestUrl: (() => Promise.resolve({ status: 200 })) as never,
+	});
+
+	assert.equal(sent, true);
+	assert.deepEqual(notices, ["Word Goal: Webhook Sent ✓"]);
+});
+
+test("manual test webhook failures still show a failure notice", async () => {
+	const notices: string[] = [];
+
+	class TestNotice {
+		constructor(message: string | DocumentFragment) {
+			notices.push(String(message));
+		}
+	}
+
+	const sent = await sendWebhook({ ...webhookOptions("https://hook.example.com"), test: true }, {
+		Notice: TestNotice as never,
+		requestUrl: (() => Promise.reject(new Error("offline"))) as never,
+	});
+
+	assert.equal(sent, false);
+	assert.deepEqual(notices, ["Word Goal: Test Webhook Failed."]);
+});

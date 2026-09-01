@@ -16,7 +16,12 @@ import { DEFAULT_SETTINGS, shouldCountPath, PLUGIN_DATA_VERSION, type WordGoalSe
 import { WordGoalSettingTab } from "./src/settings-tab";
 import { TrackingController } from "./src/tracking-controller";
 import { renderStatusBar } from "./src/ui/status-bar";
-import { sendWebhook, shouldMarkWebhookHandled } from "./src/webhook";
+import {
+	GoalWebhookRetryQueue,
+	type GoalWebhookDeliveryResult,
+	type PendingGoalWebhook,
+} from "./src/goal-webhook-retry";
+import { isWebhookConfigured, sendWebhook } from "./src/webhook";
 import { SidebarHeatmapView, VIEW_TYPE_HEATMAP } from "./src/views/sidebar-heatmap-view";
 import { DetailModal } from "./src/views/detail-modal";
 import { DailyNoteImportModal } from "./src/views/daily-note-import-modal";
@@ -31,7 +36,10 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 	};
 	private statusBarEl: HTMLElement | null = null;
 	private visibilityHandler: () => void = () => {};
-	private webhookSendInFlightDate: string | null = null;
+	private readonly goalWebhookRetries = new GoalWebhookRetryQueue({
+		deliver: (event) => this.deliverGoalWebhook(event),
+		onUnexpectedError: (error) => console.error("Failed to retry goal webhook:", error),
+	});
 	private dataCoordinator: PluginDataCoordinator<WordGoalSettings> | null = null;
 	private trackingController: TrackingController | null = null;
 	private celebrateGoalUntil = 0;
@@ -197,6 +205,7 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 			window.clearTimeout(this.celebrateGoalTimer);
 			this.celebrateGoalTimer = null;
 		}
+		this.goalWebhookRetries.dispose();
 		this.dataCoordinator?.dispose();
 		this.trackingController?.dispose();
 		this.finalizeToday();
@@ -261,12 +270,14 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		if (
 			this.todaysTotal() >= this.settings.dailyGoal &&
 			this.data.lastWebhookSentDate !== this.data.activeDay.date &&
-			this.webhookSendInFlightDate !== this.data.activeDay.date
+			!this.goalWebhookRetries.hasPending(this.data.activeDay.date)
 		) {
-			this.webhookSendInFlightDate = this.data.activeDay.date;
 			this.triggerGoalCelebration();
 			new Notice(`🎉 You Hit ${this.settings.dailyGoal} Words Today!`);
-			void this.fireWebhook().catch((err) => console.error("Failed to send goal webhook:", err));
+			this.goalWebhookRetries.queue({
+				date: this.data.activeDay.date,
+				actual: this.todaysTotal(),
+			});
 		}
 	}
 
@@ -429,28 +440,52 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		return this.data;
 	}
 
-	private async fireWebhook() {
-		try {
-			const sent = await this.sendWebhook({ test: false });
-			if (!shouldMarkWebhookHandled(this.settings, sent)) return;
-			this.data.lastWebhookSentDate = this.data.activeDay.date;
-			this.markDirty({ refreshSidebar: true });
-			await this.flushSave();
-		} finally {
-			this.webhookSendInFlightDate = null;
+	private async deliverGoalWebhook(event: PendingGoalWebhook): Promise<GoalWebhookDeliveryResult> {
+		if (!isWebhookConfigured(this.settings)) {
+			await this.markGoalWebhookHandled(event.date);
+			return "discarded";
 		}
+
+		const sent = await this.sendWebhook({
+			test: false,
+			actual: event.actual,
+			date: event.date,
+			notifyOnFailure: false,
+		});
+		if (!sent) return "retry";
+
+		await this.markGoalWebhookHandled(event.date);
+		return "sent";
+	}
+
+	private async markGoalWebhookHandled(date: string): Promise<void> {
+		if (date <= this.data.lastWebhookSentDate) return;
+		this.data.lastWebhookSentDate = date;
+		this.markDirty({ refreshSidebar: true });
+		await this.flushSave();
 	}
 
 	async sendTestWebhook() {
 		await this.sendWebhook({ test: true });
 	}
 
-	private async sendWebhook({ test }: { test: boolean }): Promise<boolean> {
+	private async sendWebhook({
+		test,
+		actual = this.todaysTotal(),
+		date = this.data.activeDay.date,
+		notifyOnFailure,
+	}: {
+		test: boolean;
+		actual?: number;
+		date?: string;
+		notifyOnFailure?: boolean;
+	}): Promise<boolean> {
 		return sendWebhook({
 			settings: this.settings,
-			actual: this.todaysTotal(),
-			date: this.data.activeDay.date,
+			actual,
+			date,
 			test,
+			notifyOnFailure,
 		});
 	}
 }

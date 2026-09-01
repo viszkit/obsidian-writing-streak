@@ -15,6 +15,7 @@ export interface SendWebhookOptions {
 	actual: number;
 	date: string;
 	test: boolean;
+	notifyOnFailure?: boolean;
 }
 
 interface WebhookDependencies {
@@ -66,7 +67,9 @@ export async function sendWebhook(options: SendWebhookOptions, dependencies?: We
 		return true;
 	} catch (err) {
 		console.error("Word Goal webhook error:", err);
-		new Notice(options.test ? "Word Goal: Test Webhook Failed." : "Word Goal: Webhook Failed.");
+		if (options.notifyOnFailure !== false) {
+			new Notice(options.test ? "Word Goal: Test Webhook Failed." : "Word Goal: Webhook Failed.");
+		}
 		return false;
 	}
 }
