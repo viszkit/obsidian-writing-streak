@@ -24,3 +24,11 @@ test("plugin refreshes sidebar only when active daily note highlight changes", (
 	assert.match(setterBody, /this\.activeDailyNoteDateKey = dateKey/);
 	assert.match(setterBody, /this\.refreshSidebar\(\)/);
 });
+
+test("background daily-note opens do not replace the active-note highlight", () => {
+	const source = readFileSync("main.ts", "utf8");
+	const openerBody = source.match(/\n\tasync openDailyNoteForDate\([\s\S]*?\n\t\}/)?.[0] ?? "";
+
+	assert.match(openerBody, /openDailyNote\(this\.app, date, options\)/);
+	assert.match(openerBody, /result\.opened && !options\?\.newTab/);
+});
