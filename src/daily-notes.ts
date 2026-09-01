@@ -97,7 +97,15 @@ export type OpenDailyNoteResult =
 	| { opened: false; reason: "missing-config" | "invalid-path"; path?: undefined }
 	| { opened: false; reason: "missing-file"; path: string };
 
-export async function openDailyNoteForDate(app: App, date: Date): Promise<OpenDailyNoteResult> {
+export interface OpenDailyNoteOptions {
+	newTab?: boolean;
+}
+
+export async function openDailyNoteForDate(
+	app: App,
+	date: Date,
+	options?: OpenDailyNoteOptions
+): Promise<OpenDailyNoteResult> {
 	const path = await resolveDailyNotePathForDate(app, date);
 	if (!path) {
 		const config = await resolveDailyNotePathConfig(app);
@@ -106,6 +114,12 @@ export async function openDailyNoteForDate(app: App, date: Date): Promise<OpenDa
 
 	const file = app.vault.getAbstractFileByPath(path);
 	if (!(file instanceof TFile)) return { opened: false, reason: "missing-file", path };
+
+	if (options?.newTab) {
+		const leaf = app.workspace.getLeaf("tab");
+		await leaf.openFile(file, { active: false });
+		return { opened: true, path };
+	}
 
 	const leaf = app.workspace.getMostRecentLeaf(app.workspace.rootSplit)
 		?? app.workspace.getLeaf(false);

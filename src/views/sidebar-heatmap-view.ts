@@ -132,12 +132,12 @@ export class SidebarHeatmapView extends ItemView {
 				cell.tabIndex = 0;
 				cell.setAttribute("role", "button");
 
-				const openDailyNote = () => {
-					void this.openDailyNoteFromSidebar(slotDate).catch((err) => {
+				const openDailyNote = (newTab = false) => {
+					void this.openDailyNoteFromSidebar(slotDate, newTab).catch((err) => {
 						console.error("Failed to open daily note from sidebar:", err);
 					});
 				};
-				cell.addEventListener("click", openDailyNote);
+				cell.addEventListener("click", (event) => openDailyNote(event.metaKey));
 				cell.addEventListener("keydown", (event) => {
 					if (event.key !== "Enter" && event.key !== " ") return;
 					event.preventDefault();
@@ -269,13 +269,13 @@ export class SidebarHeatmapView extends ItemView {
 		this.updateStreakCard(this.goalStreakCard, goalMet.current, goalMet.longest);
 	}
 
-	private async openDailyNoteFromSidebar(date: Date): Promise<void> {
-		const result = await this.plugin.openDailyNoteForDate(date);
+	private async openDailyNoteFromSidebar(date: Date, newTab = false): Promise<void> {
+		const result = await this.plugin.openDailyNoteForDate(date, { newTab });
 		if (!result.opened) {
 			this.showDailyNoteOpenFailure(date, result);
 			return;
 		}
-		if (!(this.app as typeof this.app & { isMobile?: boolean }).isMobile) return;
+		if (newTab || !(this.app as typeof this.app & { isMobile?: boolean }).isMobile) return;
 
 		this.collapseMobileSidebar();
 	}

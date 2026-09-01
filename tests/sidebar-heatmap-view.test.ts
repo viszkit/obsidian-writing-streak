@@ -26,6 +26,16 @@ test("sidebar marks the active daily note cell without coupling it to today", ()
 	assert.match(source, /--wg-active-note-accent/);
 });
 
+test("sidebar routes Meta-clicks to background tabs while keyboard activation stays focused", () => {
+	const source = readFileSync("src/views/sidebar-heatmap-view.ts", "utf8");
+
+	assert.match(source, /const openDailyNote = \(newTab = false\)/);
+	assert.match(source, /cell\.addEventListener\("click", \(event\) => openDailyNote\(event\.metaKey\)\)/);
+	assert.match(source, /event\.preventDefault\(\);\s*openDailyNote\(\);/);
+	assert.match(source, /openDailyNoteForDate\(date, \{ newTab \}\)/);
+	assert.match(source, /if \(newTab \|\| !\(this\.app as typeof this\.app & \{ isMobile\?: boolean \}\)\.isMobile\) return/);
+});
+
 test("sidebar heatmap stays responsive while capping and centering wide grids", () => {
 	const styles = readFileSync("styles.css", "utf8");
 	const gridRule = styles.match(/\.wg-sb-grid\s*\{(?<body>[^}]*)\}/)?.groups?.body ?? "";

@@ -1,5 +1,5 @@
 import type { App } from "obsidian";
-import type { OpenDailyNoteResult } from "./daily-notes";
+import type { OpenDailyNoteOptions, OpenDailyNoteResult } from "./daily-notes";
 import type { PluginDataShape } from "./plugin-data";
 import type { WordGoalSettings } from "./settings";
 
@@ -10,7 +10,7 @@ export interface WordGoalPluginApi {
 	todaysTotal(): number;
 	isGoalCelebrating(): boolean;
 	getActiveDailyNoteDateKey(): string | null;
-	openDailyNoteForDate(date: Date): Promise<OpenDailyNoteResult>;
+	openDailyNoteForDate(date: Date, options?: OpenDailyNoteOptions): Promise<OpenDailyNoteResult>;
 	sendTestWebhook(): Promise<void>;
 	syncTodayHistory(): void;
 	markDirty(options?: { refreshSidebar?: boolean }): void;

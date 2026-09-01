@@ -2,7 +2,11 @@ import { Notice, Plugin, TFile } from "obsidian";
 import { PluginDataCoordinator } from "./src/data-sync";
 import { dateToKey, todayKey } from "./src/dates";
 import { createEmptyActiveDay, getTodayTotal } from "./src/daily-progress";
-import { openDailyNoteForDate as openDailyNote, resolveDailyNotePathConfig } from "./src/daily-notes";
+import {
+	openDailyNoteForDate as openDailyNote,
+	resolveDailyNotePathConfig,
+	type OpenDailyNoteOptions,
+} from "./src/daily-notes";
 import { dailyNotePathToDateKey } from "./src/daily-note-import";
 import { importDailyNoteWordCounts as importDailyNoteWordCountsFromVault } from "./src/imports/daily-note-word-count-import";
 import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-word-count-import";
@@ -399,9 +403,9 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 		}
 	}
 
-	async openDailyNoteForDate(date: Date): ReturnType<typeof openDailyNote> {
-		const result = await openDailyNote(this.app, date);
-		if (result.opened) {
+	async openDailyNoteForDate(date: Date, options?: OpenDailyNoteOptions): ReturnType<typeof openDailyNote> {
+		const result = await openDailyNote(this.app, date, options);
+		if (result.opened && !options?.newTab) {
 			this.setActiveDailyNoteDateKey(dateToKey(date));
 		}
 		return result;
