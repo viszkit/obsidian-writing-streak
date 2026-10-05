@@ -5,6 +5,7 @@ import type { WordGoalPluginApi } from "../plugin-api";
 import {
 	MONTHS,
 	buildYearGrid,
+	getEarliestHistoryYear,
 	getHeatmapCellState,
 	getMonthlySums,
 	yearStats,
@@ -34,11 +35,17 @@ export class DetailModal extends Modal {
 		const history = this.plugin.data.history;
 		const year = this.displayYear;
 		const currentYear = new Date().getFullYear();
+		const earliestHistoryYear = getEarliestHistoryYear(history, currentYear);
 		const color = this.plugin.settings.heatmapColor;
 
 		const nav = contentEl.createDiv({ cls: "wg-dt-nav" });
 		const btnPrev = nav.createEl("button", { text: "←", cls: "wg-dt-nav-btn" });
-		btnPrev.addEventListener("click", () => { this.displayYear--; this.render(); });
+		btnPrev.disabled = year <= earliestHistoryYear;
+		btnPrev.addEventListener("click", () => {
+			if (this.displayYear <= earliestHistoryYear) return;
+			this.displayYear--;
+			this.render();
+		});
 		nav.createSpan({ text: `${year}`, cls: "wg-dt-year" });
 		const btnNext = nav.createEl("button", { text: "→", cls: "wg-dt-nav-btn" });
 		btnNext.disabled = year >= currentYear;

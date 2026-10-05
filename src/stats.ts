@@ -22,6 +22,17 @@ export interface YearGridSlot {
 	date: Date | null;
 }
 
+export function getEarliestHistoryYear(history: Record<string, DailyRecord>, fallbackYear: number): number {
+	let earliestYear = fallbackYear;
+	for (const [dateKey, record] of Object.entries(history)) {
+		if (record.totalWords <= 0) continue;
+		const match = /^(\d{4})-\d{2}-\d{2}$/.exec(dateKey);
+		if (!match) continue;
+		earliestYear = Math.min(earliestYear, Number(match[1]));
+	}
+	return earliestYear;
+}
+
 export function getStreakCardState(current: number, longest: number): StreakCardState {
 	if (current <= 0) return "idle";
 	return current === longest ? "best-active" : "active";

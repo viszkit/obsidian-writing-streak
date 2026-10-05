@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { DailyRecord } from "../src/daily-progress";
-import { getHeatmapCellState } from "../src/stats";
+import { getEarliestHistoryYear, getHeatmapCellState } from "../src/stats";
 
 const DATE = new Date(2026, 0, 15);
 const DATE_KEY = "2026-01-15";
@@ -45,4 +45,20 @@ test("an extreme outlier does not affect another day's intensity", () => {
 test("overachiever level is based on the current goal even when goalMet is stored", () => {
 	assert.equal(cellState(899, true).level, 4);
 	assert.equal(cellState(900, true).level, 5);
+});
+
+test("earliest history year ignores gaps and uses the first writing year", () => {
+	const history: Record<string, DailyRecord> = {
+		"2024-06-01": { totalWords: 100, goalMet: false },
+		"2026-01-15": { totalWords: 200, goalMet: false },
+	};
+
+	assert.equal(getEarliestHistoryYear(history, 2026), 2024);
+});
+
+test("earliest history year uses the current year when no writing history exists", () => {
+	assert.equal(getEarliestHistoryYear({}, 2026), 2026);
+	assert.equal(getEarliestHistoryYear({
+		"2024-06-01": { totalWords: 0, goalMet: false },
+	}, 2026), 2026);
 });

@@ -68,6 +68,14 @@ test("detail heatmap scroll area reserves vertical room for daily tooltips", () 
 	assert.match(scrollWrapRule, /padding-top:\s*30px/);
 });
 
+test("detail view does not navigate before the earliest writing year", () => {
+	const detailSource = readFileSync("src/views/detail-modal.ts", "utf8");
+
+	assert.match(detailSource, /getEarliestHistoryYear\(history, currentYear\)/);
+	assert.match(detailSource, /btnPrev\.disabled = year <= earliestHistoryYear/);
+	assert.match(detailSource, /if \(this\.displayYear <= earliestHistoryYear\) return/);
+});
+
 test("sidebar interaction states stack above overachiever cells", () => {
 	const styles = readFileSync("styles.css", "utf8");
 	const tooltipStackRule = styles.match(
