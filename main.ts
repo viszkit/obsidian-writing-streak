@@ -11,7 +11,7 @@ import { dailyNotePathToDateKey } from "./src/daily-note-import";
 import { importDailyNoteWordCounts as importDailyNoteWordCountsFromVault } from "./src/imports/daily-note-word-count-import";
 import type { DailyNoteWordCountImportRange } from "./src/imports/daily-note-word-count-import";
 import type { WordGoalPluginApi } from "./src/plugin-api";
-import type { PluginDataShape } from "./src/plugin-data";
+import { updateCurrentDayHistory, type PluginDataShape } from "./src/plugin-data";
 import { DEFAULT_SETTINGS, shouldCountPath, PLUGIN_DATA_VERSION, type WordGoalSettings } from "./src/settings";
 import { WordGoalSettingTab } from "./src/settings-tab";
 import { TrackingController } from "./src/tracking-controller";
@@ -223,15 +223,20 @@ export default class WordGoalWebhookPlugin extends Plugin implements WordGoalPlu
 
 	private syncHistoryEntry(dateKey: string, totalWords: number) {
 		const existing = this.data.history[dateKey];
-		// A recovered active day can temporarily receive stale file observations.
-		// Do not let them replace the durable total for the day currently in progress.
-		const resolvedTotal = dateKey === todayKey()
-			? Math.max(totalWords, existing?.totalWords ?? 0)
-			: totalWords;
-		if (resolvedTotal > 0) {
+		if (dateKey === todayKey()) {
+			this.data.history = updateCurrentDayHistory(
+				this.data.history,
+				dateKey,
+				totalWords,
+				this.settings.dailyGoal,
+				Date.now()
+			);
+			return;
+		}
+		if (totalWords > 0) {
 			this.data.history[dateKey] = {
-				totalWords: resolvedTotal,
-				goalMet: existing?.goalMet === true || resolvedTotal >= this.settings.dailyGoal,
+				totalWords,
+				goalMet: totalWords >= this.settings.dailyGoal,
 				updatedAt: Date.now(),
 			};
 			return;

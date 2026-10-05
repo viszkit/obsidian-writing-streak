@@ -277,18 +277,25 @@ export class TrackingController {
 			return;
 		}
 		const words = this.countEditorWords(file, editor);
-		if (hasDuplicateObservation(this.state, file.path, words)) return;
+		const hasRecoveredWords = (this.state.activeDay.recoveredWords ?? 0) > 0;
+		if (hasDuplicateObservation(this.state, file.path, words) && !hasRecoveredWords) return;
 
 		if (!this.state.activeDay.files[file.path]) {
 			await this.ensureFileProgressInitializedFromStorage(file, source, words);
 		}
 
-		if (this.observeFileWords(file, words, source)) {
+		if (this.observeFileWords(file, words, source, Date.now(), true)) {
 			this.deps.onProgressChanged();
 		}
 	}
 
-	private observeFileWords(file: TFile, words: number, source: string, observedAt = Date.now()): boolean {
+	private observeFileWords(
+		file: TFile,
+		words: number,
+		source: string,
+		observedAt = Date.now(),
+		clearRecoveredWords = false
+	): boolean {
 		if (this.deps.isFileExcluded(file.path)) {
 			this.removeFileIfTracked(file.path);
 			return false;
@@ -299,7 +306,8 @@ export class TrackingController {
 			this.deps.todayKey(),
 			file.path,
 			words,
-			observedAt
+			observedAt,
+			{ clearRecoveredWords }
 		);
 		this.applyState(result.state);
 		logObservationDiagnostic("observe-file-words", {

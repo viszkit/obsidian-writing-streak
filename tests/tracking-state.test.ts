@@ -106,6 +106,46 @@ test("duplicate observations are suppressed", () => {
 	assert.equal(duplicate.duplicate, true);
 });
 
+test("a word-neutral live editor observation clears recovered progress", () => {
+	let state = createTrackingState({
+		date: "2026-04-15",
+		recoveredWords: 984,
+		files: {
+			"note.md": { baselineWords: 0, latestWords: 324, latestObservedAt: 1 },
+		},
+	});
+	state = recordObservedFileWords(state, "2026-04-15", "note.md", 324, 2).state;
+
+	const observed = recordObservedFileWords(
+		state,
+		"2026-04-15",
+		"note.md",
+		324,
+		3,
+		{ clearRecoveredWords: true }
+	);
+
+	assert.equal(observed.duplicate, true);
+	assert.equal(observed.changed, true);
+	assert.equal(observed.state.activeDay.recoveredWords, 0);
+	assert.equal(getTodayTotal(observed.state.activeDay), 324);
+});
+
+test("stored observations do not clear recovered progress", () => {
+	const state = createTrackingState({
+		date: "2026-04-15",
+		recoveredWords: 984,
+		files: {
+			"note.md": { baselineWords: 0, latestWords: 324, latestObservedAt: 1 },
+		},
+	});
+
+	const observed = recordObservedFileWords(state, "2026-04-15", "note.md", 325, 2);
+
+	assert.equal(observed.state.activeDay.recoveredWords, 984);
+	assert.equal(getTodayTotal(observed.state.activeDay), 1309);
+});
+
 test("baseline lowers when a note is deleted below its starting point", () => {
 	let state = createTrackingState(createEmptyActiveDay("2026-04-15"));
 	state = recordObservedFileWords(state, "2026-04-15", "note.md", 1000, 1).state;

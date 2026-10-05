@@ -42,6 +42,14 @@ export interface FileObservationResult {
 	duplicate: boolean;
 }
 
+export interface RecordObservedFileWordsOptions {
+	/**
+	 * A value read directly from an open editor is authoritative for this session.
+	 * It supersedes a carry previously restored from synced history.
+	 */
+	clearRecoveredWords?: boolean;
+}
+
 export interface FileRenameResult {
 	state: TrackingState;
 	changed: boolean;
@@ -111,12 +119,21 @@ export function recordObservedFileWords(
 	dateKey: string,
 	path: string,
 	words: number,
-	observedAt: number
+	observedAt: number,
+	options: RecordObservedFileWordsOptions = {}
 ): FileObservationResult {
 	const normalizedWords = normalizeWordCount(words);
-	const currentState = state.activeDay.date === dateKey ? state : rollTrackingStateToDate(state, dateKey).state;
+	let currentState = state.activeDay.date === dateKey ? state : rollTrackingStateToDate(state, dateKey).state;
+	const recoveredWords = currentState.activeDay.recoveredWords ?? 0;
+	const clearedRecoveredWords = options.clearRecoveredWords === true && recoveredWords > 0;
+	if (clearedRecoveredWords) {
+		currentState = {
+			...currentState,
+			activeDay: { ...currentState.activeDay, recoveredWords: 0 },
+		};
+	}
 	if (hasDuplicateObservation(currentState, path, normalizedWords)) {
-		return { state: currentState, changed: false, duplicate: true };
+		return { state: currentState, changed: clearedRecoveredWords, duplicate: true };
 	}
 
 	const existing = currentState.activeDay.files[path];

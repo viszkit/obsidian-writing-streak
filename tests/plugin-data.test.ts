@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PluginDataStore, normalizePluginData, reconcileActiveDayWithHistory } from "../src/plugin-data";
+import {
+	mergePluginData,
+	PluginDataStore,
+	normalizePluginData,
+	reconcileActiveDayWithHistory,
+	updateCurrentDayHistory,
+} from "../src/plugin-data";
 import { createEmptyActiveDay, getTodayTotal, recordFileObservation } from "../src/daily-progress";
+import { createTrackingState, recordObservedFileWords } from "../src/tracking-state";
 
 const defaultSettings = {
 	webhookUrl: "",
@@ -109,6 +116,66 @@ test("loading corrupted current-day data restores the history total to the activ
 
 	assert.equal(getTodayTotal(data.activeDay), 772);
 	assert.equal(data.activeDay.recoveredWords, 772);
+});
+
+test("current-day history follows the net total and clears goal achievement after deletions", () => {
+	const history = updateCurrentDayHistory({
+		"2026-04-04": { totalWords: 1308, goalMet: true, updatedAt: 10 },
+	}, "2026-04-04", 324, 1000, 20);
+
+	assert.deepEqual(history["2026-04-04"], {
+		totalWords: 324,
+		goalMet: false,
+		updatedAt: 20,
+	});
+
+	const cleared = updateCurrentDayHistory(history, "2026-04-04", 0, 1000, 30);
+	assert.equal(cleared["2026-04-04"], undefined);
+});
+
+test("live deletion persists below a stale synced total without recreating recovered progress", () => {
+	let tracking = createTrackingState({
+		date: "2026-04-04",
+		recoveredWords: 984,
+		files: {
+			"note.md": { baselineWords: 0, latestWords: 324, latestObservedAt: 20 },
+		},
+	});
+	tracking = recordObservedFileWords(
+		tracking,
+		"2026-04-04",
+		"note.md",
+		324,
+		30,
+		{ clearRecoveredWords: true }
+	).state;
+	const history = updateCurrentDayHistory({
+		"2026-04-04": { totalWords: 1308, goalMet: true, updatedAt: 20 },
+	}, "2026-04-04", getTodayTotal(tracking.activeDay), 1000, 30);
+	const local = {
+		version: 2,
+		settings: defaultSettings,
+		history,
+		activeDay: tracking.activeDay,
+		lastWebhookSentDate: "",
+	};
+	const staleSynced = {
+		version: 2,
+		settings: defaultSettings,
+		history: { "2026-04-04": { totalWords: 1308, goalMet: true, updatedAt: 20 } },
+		activeDay: {
+			date: "2026-04-04",
+			files: { "note.md": { baselineWords: 0, latestWords: 1308, latestObservedAt: 20 } },
+		},
+		lastWebhookSentDate: "",
+	};
+
+	const merged = mergePluginData(local, staleSynced, "2026-04-04");
+
+	assert.equal(merged.history["2026-04-04"].totalWords, 324);
+	assert.equal(merged.history["2026-04-04"].goalMet, false);
+	assert.equal(merged.activeDay.recoveredWords, 0);
+	assert.equal(getTodayTotal(merged.activeDay), 324);
 });
 
 test("valid primary data loads from data.json", async () => {

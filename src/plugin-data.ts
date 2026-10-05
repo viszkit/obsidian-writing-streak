@@ -72,6 +72,31 @@ function compareHistory(local: DailyRecord | undefined, incoming: DailyRecord | 
 	return incoming.totalWords > local.totalWords ? { ...incoming } : { ...local };
 }
 
+/**
+ * Today is still in progress, so its durable history record must reflect the
+ * current net total rather than the highest value reached earlier in the day.
+ */
+export function updateCurrentDayHistory(
+	history: Record<string, DailyRecord>,
+	dateKey: string,
+	totalWords: number,
+	dailyGoal: number,
+	updatedAt: number
+): Record<string, DailyRecord> {
+	const nextHistory = { ...history };
+	const normalizedTotal = Number.isFinite(totalWords) ? Math.max(0, Math.floor(totalWords)) : 0;
+	if (normalizedTotal === 0) {
+		delete nextHistory[dateKey];
+		return nextHistory;
+	}
+	nextHistory[dateKey] = {
+		totalWords: normalizedTotal,
+		goalMet: normalizedTotal >= dailyGoal,
+		updatedAt,
+	};
+	return nextHistory;
+}
+
 function backupPaths(primaryPath: string): string[] {
 	const basePath = primaryPath.endsWith(".json") ? primaryPath.slice(0, -".json".length) : primaryPath;
 	return Array.from({ length: BACKUP_COUNT }, (_, index) => `${basePath}.backup-${index + 1}.json`);
